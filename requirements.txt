@@ -1,0 +1,3 @@
+psutil
+ollama
+pywin32
