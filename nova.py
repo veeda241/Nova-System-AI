@@ -141,6 +141,29 @@ def list_processes():
     except Exception as e:
         return f"An unexpected error occurred while trying to list processes: {e}"
 
+def get_disk_usage():
+    """Gets information about disk partitions and their usage."""
+    disk_info = "Disk Usage:\n"
+    for partition in psutil.disk_partitions():
+        try:
+            usage = psutil.disk_usage(partition.mountpoint)
+            disk_info += f"  Drive: {partition.device} ({partition.mountpoint})\n"
+            disk_info += f"    Total: {usage.total / (1024**3):.2f} GB\n"
+            disk_info += f"    Used: {usage.used / (1024**3):.2f} GB ({usage.percent}%)\n"
+            disk_info += f"    Free: {usage.free / (1024**3):.2f} GB\n"
+        except Exception as e:
+            disk_info += f"  Drive: {partition.device} ({partition.mountpoint}) - Error accessing: {e}\n"
+    return disk_info
+
+def launch_multiple_applications(app_names_str):
+    """Launches multiple applications sequentially."""
+    app_names = [app.strip() for app in app_names_str.split(',') if app.strip()]
+    results = []
+    for app_name in app_names:
+        result = open_application(app_name)
+        results.append(result)
+    return "\n".join(results)
+
 def execute_shell_command(command):
     """Executes a shell command and returns its output."""
     try:
@@ -160,6 +183,8 @@ def get_help_message():
     help_msg += "  - 'system analysis': Shows current CPU, memory, and battery usage.\n"
     help_msg += "  - 'clean temp files': Cleans temporary files from your system.\n"
     help_msg += "  - 'list processes': Lists all running processes to help identify application names for closing.\n"
+    help_msg += "  - 'disk usage': Shows information about disk partitions and their usage.\n"
+    help_msg += "  - 'open multiple applications [app1, app2, ...]': Opens several applications sequentially. Provide a comma-separated list of app names or paths.\n"
     help_msg += "  - 'run command [your_shell_command]': Executes any shell command. USE WITH EXTREME CAUTION! This gives NOVA full control over your system. You will be asked for confirmation.\n"
     help_msg += "  - 'help': Displays this help message.\n"
     help_msg += "For general chat, just type your message!"
@@ -245,6 +270,11 @@ class ChatbotGUI:
             response_to_display = clean_temp_files()
         elif "list processes" in user_input.lower():
             response_to_display = list_processes()
+        elif "disk usage" in user_input.lower():
+            response_to_display = get_disk_usage()
+        elif user_input.lower().startswith("open multiple applications "):
+            app_names_str = user_input[len("open multiple applications "):].strip()
+            response_to_display = launch_multiple_applications(app_names_str)
         elif user_input.lower().startswith("run command "):
             command_to_execute = user_input[len("run command "):].strip()
             if messagebox.askyesno("Confirmation", f"WARNING: You are about to execute the command:\n\n'{command_to_execute}'\n\nThis gives NOVA full control over your system. Are you sure you want to proceed?"):

@@ -1,2 +1,2 @@
 @echo off
-python "%~dp0nova.py"
+start "" python "%~dp0nova.py"
