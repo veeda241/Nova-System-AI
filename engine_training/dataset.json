@@ -1,0 +1,866 @@
+[
+  {
+    "text": "lock systems",
+    "label": 0
+  },
+  {
+    "text": "lock systems!",
+    "label": 0
+  },
+  {
+    "text": "can you lock systems",
+    "label": 0
+  },
+  {
+    "text": "please lock systems",
+    "label": 0
+  },
+  {
+    "text": "lock computer",
+    "label": 0
+  },
+  {
+    "text": "lock computer",
+    "label": 0
+  },
+  {
+    "text": "can you lock computer",
+    "label": 0
+  },
+  {
+    "text": "please lock computer",
+    "label": 0
+  },
+  {
+    "text": "secure laptop",
+    "label": 0
+  },
+  {
+    "text": "secure laptop!",
+    "label": 0
+  },
+  {
+    "text": "can you secure laptop",
+    "label": 0
+  },
+  {
+    "text": "please secure laptop",
+    "label": 0
+  },
+  {
+    "text": "lock it",
+    "label": 0
+  },
+  {
+    "text": "lock it!",
+    "label": 0
+  },
+  {
+    "text": "can you lock it",
+    "label": 0
+  },
+  {
+    "text": "please lock it",
+    "label": 0
+  },
+  {
+    "text": "screen lock",
+    "label": 0
+  },
+  {
+    "text": "screen lock",
+    "label": 0
+  },
+  {
+    "text": "can you screen lock",
+    "label": 0
+  },
+  {
+    "text": "please screen lock",
+    "label": 0
+  },
+  {
+    "text": "lock workstation",
+    "label": 0
+  },
+  {
+    "text": "lock workstation",
+    "label": 0
+  },
+  {
+    "text": "can you lock workstation",
+    "label": 0
+  },
+  {
+    "text": "please lock workstation",
+    "label": 0
+  },
+  {
+    "text": "lock now",
+    "label": 0
+  },
+  {
+    "text": "lock now!",
+    "label": 0
+  },
+  {
+    "text": "can you lock now",
+    "label": 0
+  },
+  {
+    "text": "please lock now",
+    "label": 0
+  },
+  {
+    "text": "please lock",
+    "label": 0
+  },
+  {
+    "text": "please lock",
+    "label": 0
+  },
+  {
+    "text": "can you please lock",
+    "label": 0
+  },
+  {
+    "text": "please please lock",
+    "label": 0
+  },
+  {
+    "text": "lock the machine",
+    "label": 0
+  },
+  {
+    "text": "lock the machine",
+    "label": 0
+  },
+  {
+    "text": "can you lock the machine",
+    "label": 0
+  },
+  {
+    "text": "please lock the machine",
+    "label": 0
+  },
+  {
+    "text": "protect screen",
+    "label": 0
+  },
+  {
+    "text": "protect screen",
+    "label": 0
+  },
+  {
+    "text": "can you protect screen",
+    "label": 0
+  },
+  {
+    "text": "please protect screen",
+    "label": 0
+  },
+  {
+    "text": "volume up",
+    "label": 1
+  },
+  {
+    "text": "volume up",
+    "label": 1
+  },
+  {
+    "text": "can you volume up",
+    "label": 1
+  },
+  {
+    "text": "please volume up",
+    "label": 1
+  },
+  {
+    "text": "increase volume",
+    "label": 1
+  },
+  {
+    "text": "increase volume",
+    "label": 1
+  },
+  {
+    "text": "can you increase volume",
+    "label": 1
+  },
+  {
+    "text": "please increase volume",
+    "label": 1
+  },
+  {
+    "text": "louder",
+    "label": 1
+  },
+  {
+    "text": "louder",
+    "label": 1
+  },
+  {
+    "text": "can you louder",
+    "label": 1
+  },
+  {
+    "text": "please louder",
+    "label": 1
+  },
+  {
+    "text": "make it louder",
+    "label": 1
+  },
+  {
+    "text": "make it louder",
+    "label": 1
+  },
+  {
+    "text": "can you make it louder",
+    "label": 1
+  },
+  {
+    "text": "please make it louder",
+    "label": 1
+  },
+  {
+    "text": "sound up",
+    "label": 1
+  },
+  {
+    "text": "sound up",
+    "label": 1
+  },
+  {
+    "text": "can you sound up",
+    "label": 1
+  },
+  {
+    "text": "please sound up",
+    "label": 1
+  },
+  {
+    "text": "more volume",
+    "label": 1
+  },
+  {
+    "text": "more volume!",
+    "label": 1
+  },
+  {
+    "text": "can you more volume",
+    "label": 1
+  },
+  {
+    "text": "please more volume",
+    "label": 1
+  },
+  {
+    "text": "volume increase",
+    "label": 1
+  },
+  {
+    "text": "volume increase!",
+    "label": 1
+  },
+  {
+    "text": "can you volume increase",
+    "label": 1
+  },
+  {
+    "text": "please volume increase",
+    "label": 1
+  },
+  {
+    "text": "turn it up",
+    "label": 1
+  },
+  {
+    "text": "turn it up",
+    "label": 1
+  },
+  {
+    "text": "can you turn it up",
+    "label": 1
+  },
+  {
+    "text": "please turn it up",
+    "label": 1
+  },
+  {
+    "text": "sound plus",
+    "label": 1
+  },
+  {
+    "text": "sound plus",
+    "label": 1
+  },
+  {
+    "text": "can you sound plus",
+    "label": 1
+  },
+  {
+    "text": "please sound plus",
+    "label": 1
+  },
+  {
+    "text": "volume high",
+    "label": 1
+  },
+  {
+    "text": "volume high",
+    "label": 1
+  },
+  {
+    "text": "can you volume high",
+    "label": 1
+  },
+  {
+    "text": "please volume high",
+    "label": 1
+  },
+  {
+    "text": "volume down",
+    "label": 2
+  },
+  {
+    "text": "volume down",
+    "label": 2
+  },
+  {
+    "text": "can you volume down",
+    "label": 2
+  },
+  {
+    "text": "please volume down",
+    "label": 2
+  },
+  {
+    "text": "decrease volume",
+    "label": 2
+  },
+  {
+    "text": "decrease volume",
+    "label": 2
+  },
+  {
+    "text": "can you decrease volume",
+    "label": 2
+  },
+  {
+    "text": "please decrease volume",
+    "label": 2
+  },
+  {
+    "text": "quieter",
+    "label": 2
+  },
+  {
+    "text": "quieter",
+    "label": 2
+  },
+  {
+    "text": "can you quieter",
+    "label": 2
+  },
+  {
+    "text": "please quieter",
+    "label": 2
+  },
+  {
+    "text": "make it quiet",
+    "label": 2
+  },
+  {
+    "text": "make it quiet",
+    "label": 2
+  },
+  {
+    "text": "can you make it quiet",
+    "label": 2
+  },
+  {
+    "text": "please make it quiet",
+    "label": 2
+  },
+  {
+    "text": "sound down",
+    "label": 2
+  },
+  {
+    "text": "sound down",
+    "label": 2
+  },
+  {
+    "text": "can you sound down",
+    "label": 2
+  },
+  {
+    "text": "please sound down",
+    "label": 2
+  },
+  {
+    "text": "less volume",
+    "label": 2
+  },
+  {
+    "text": "less volume",
+    "label": 2
+  },
+  {
+    "text": "can you less volume",
+    "label": 2
+  },
+  {
+    "text": "please less volume",
+    "label": 2
+  },
+  {
+    "text": "volume decrease",
+    "label": 2
+  },
+  {
+    "text": "volume decrease",
+    "label": 2
+  },
+  {
+    "text": "can you volume decrease",
+    "label": 2
+  },
+  {
+    "text": "please volume decrease",
+    "label": 2
+  },
+  {
+    "text": "turn it down",
+    "label": 2
+  },
+  {
+    "text": "turn it down",
+    "label": 2
+  },
+  {
+    "text": "can you turn it down",
+    "label": 2
+  },
+  {
+    "text": "please turn it down",
+    "label": 2
+  },
+  {
+    "text": "sound minus",
+    "label": 2
+  },
+  {
+    "text": "sound minus!",
+    "label": 2
+  },
+  {
+    "text": "can you sound minus",
+    "label": 2
+  },
+  {
+    "text": "please sound minus",
+    "label": 2
+  },
+  {
+    "text": "volume low",
+    "label": 2
+  },
+  {
+    "text": "volume low",
+    "label": 2
+  },
+  {
+    "text": "can you volume low",
+    "label": 2
+  },
+  {
+    "text": "please volume low",
+    "label": 2
+  },
+  {
+    "text": "system status",
+    "label": 3
+  },
+  {
+    "text": "system status!",
+    "label": 3
+  },
+  {
+    "text": "can you system status",
+    "label": 3
+  },
+  {
+    "text": "please system status",
+    "label": 3
+  },
+  {
+    "text": "how are you",
+    "label": 3
+  },
+  {
+    "text": "how are you",
+    "label": 3
+  },
+  {
+    "text": "can you how are you",
+    "label": 3
+  },
+  {
+    "text": "please how are you",
+    "label": 3
+  },
+  {
+    "text": "show status",
+    "label": 3
+  },
+  {
+    "text": "show status",
+    "label": 3
+  },
+  {
+    "text": "can you show status",
+    "label": 3
+  },
+  {
+    "text": "please show status",
+    "label": 3
+  },
+  {
+    "text": "system health",
+    "label": 3
+  },
+  {
+    "text": "system health!",
+    "label": 3
+  },
+  {
+    "text": "can you system health",
+    "label": 3
+  },
+  {
+    "text": "please system health",
+    "label": 3
+  },
+  {
+    "text": "check laptop",
+    "label": 3
+  },
+  {
+    "text": "check laptop",
+    "label": 3
+  },
+  {
+    "text": "can you check laptop",
+    "label": 3
+  },
+  {
+    "text": "please check laptop",
+    "label": 3
+  },
+  {
+    "text": "battery status",
+    "label": 3
+  },
+  {
+    "text": "battery status",
+    "label": 3
+  },
+  {
+    "text": "can you battery status",
+    "label": 3
+  },
+  {
+    "text": "please battery status",
+    "label": 3
+  },
+  {
+    "text": "cpu usage",
+    "label": 3
+  },
+  {
+    "text": "cpu usage",
+    "label": 3
+  },
+  {
+    "text": "can you cpu usage",
+    "label": 3
+  },
+  {
+    "text": "please cpu usage",
+    "label": 3
+  },
+  {
+    "text": "resource stats",
+    "label": 3
+  },
+  {
+    "text": "resource stats!",
+    "label": 3
+  },
+  {
+    "text": "can you resource stats",
+    "label": 3
+  },
+  {
+    "text": "please resource stats",
+    "label": 3
+  },
+  {
+    "text": "how is the machine",
+    "label": 3
+  },
+  {
+    "text": "how is the machine!",
+    "label": 3
+  },
+  {
+    "text": "can you how is the machine",
+    "label": 3
+  },
+  {
+    "text": "please how is the machine",
+    "label": 3
+  },
+  {
+    "text": "stats",
+    "label": 3
+  },
+  {
+    "text": "stats!",
+    "label": 3
+  },
+  {
+    "text": "can you stats",
+    "label": 3
+  },
+  {
+    "text": "please stats",
+    "label": 3
+  },
+  {
+    "text": "what is the time",
+    "label": 4
+  },
+  {
+    "text": "what is the time",
+    "label": 4
+  },
+  {
+    "text": "can you what is the time",
+    "label": 4
+  },
+  {
+    "text": "please what is the time",
+    "label": 4
+  },
+  {
+    "text": "hello",
+    "label": 4
+  },
+  {
+    "text": "hello",
+    "label": 4
+  },
+  {
+    "text": "can you hello",
+    "label": 4
+  },
+  {
+    "text": "please hello",
+    "label": 4
+  },
+  {
+    "text": "who are you",
+    "label": 4
+  },
+  {
+    "text": "who are you",
+    "label": 4
+  },
+  {
+    "text": "can you who are you",
+    "label": 4
+  },
+  {
+    "text": "please who are you",
+    "label": 4
+  },
+  {
+    "text": "open chrome",
+    "label": 4
+  },
+  {
+    "text": "open chrome!",
+    "label": 4
+  },
+  {
+    "text": "can you open chrome",
+    "label": 4
+  },
+  {
+    "text": "please open chrome",
+    "label": 4
+  },
+  {
+    "text": "delete file",
+    "label": 4
+  },
+  {
+    "text": "delete file",
+    "label": 4
+  },
+  {
+    "text": "can you delete file",
+    "label": 4
+  },
+  {
+    "text": "please delete file",
+    "label": 4
+  },
+  {
+    "text": "lock everything now",
+    "label": 4
+  },
+  {
+    "text": "lock everything now!",
+    "label": 4
+  },
+  {
+    "text": "can you lock everything now",
+    "label": 4
+  },
+  {
+    "text": "please lock everything now",
+    "label": 4
+  },
+  {
+    "text": "make it super quiet",
+    "label": 4
+  },
+  {
+    "text": "make it super quiet",
+    "label": 4
+  },
+  {
+    "text": "can you make it super quiet",
+    "label": 4
+  },
+  {
+    "text": "please make it super quiet",
+    "label": 4
+  },
+  {
+    "text": "do that thing",
+    "label": 4
+  },
+  {
+    "text": "do that thing",
+    "label": 4
+  },
+  {
+    "text": "can you do that thing",
+    "label": 4
+  },
+  {
+    "text": "please do that thing",
+    "label": 4
+  },
+  {
+    "text": "random test",
+    "label": 4
+  },
+  {
+    "text": "random test!",
+    "label": 4
+  },
+  {
+    "text": "can you random test",
+    "label": 4
+  },
+  {
+    "text": "please random test",
+    "label": 4
+  },
+  {
+    "text": "help me",
+    "label": 4
+  },
+  {
+    "text": "help me",
+    "label": 4
+  },
+  {
+    "text": "can you help me",
+    "label": 4
+  },
+  {
+    "text": "please help me",
+    "label": 4
+  },
+  {
+    "text": "weather",
+    "label": 4
+  },
+  {
+    "text": "weather",
+    "label": 4
+  },
+  {
+    "text": "can you weather",
+    "label": 4
+  },
+  {
+    "text": "please weather",
+    "label": 4
+  },
+  {
+    "text": "search for items",
+    "label": 4
+  },
+  {
+    "text": "search for items!",
+    "label": 4
+  },
+  {
+    "text": "can you search for items",
+    "label": 4
+  },
+  {
+    "text": "please search for items",
+    "label": 4
+  },
+  {
+    "text": "play music",
+    "label": 4
+  },
+  {
+    "text": "play music",
+    "label": 4
+  },
+  {
+    "text": "can you play music",
+    "label": 4
+  },
+  {
+    "text": "please play music",
+    "label": 4
+  },
+  {
+    "text": "go home",
+    "label": 4
+  },
+  {
+    "text": "go home!",
+    "label": 4
+  },
+  {
+    "text": "can you go home",
+    "label": 4
+  },
+  {
+    "text": "please go home",
+    "label": 4
+  }
+]

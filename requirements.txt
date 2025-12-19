@@ -1,0 +1,16 @@
+# Core
+google-generativeai>=0.8.0
+rich>=13.0.0
+
+# HuggingFace (optional - for alternative models)
+huggingface-hub>=0.20.0
+
+# System monitoring
+psutil>=5.9.0
+
+# Windows (optional)
+pywin32>=306
+winshell>=0.6
+
+# Bluetooth support (optional)
+pyserial>=3.5
