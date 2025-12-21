@@ -230,7 +230,17 @@ class MCPAgent:
         # Step 3: Create Python file
         print("📄 Creating file...")
         
-        create_result = self.create_file_tool.execute(code=code)
+        # Try to extract filename from code comment (e.g., # filename: test.py or # test.py)
+        requested_filename = None
+        first_line = code.split('\n')[0].strip() if code else ""
+        if first_line.startswith('#'):
+            potential_name = first_line.replace('#', '').strip()
+            if potential_name.endswith('.py') and ' ' not in potential_name:
+                requested_filename = potential_name
+            elif 'filename:' in first_line.lower():
+                requested_filename = first_line.lower().split('filename:')[1].strip()
+        
+        create_result = self.create_file_tool.execute(code=code, filename=requested_filename)
         
         if not create_result["success"]:
             result["errors"] = create_result.get("error", "Failed to create file")

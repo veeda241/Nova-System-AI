@@ -36,20 +36,29 @@ from abc import ABC, abstractmethod
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import urllib.parse
 
-# Bluetooth support
 try:
     from nova_bluetooth import BluetoothServer, list_com_ports
     BLUETOOTH_AVAILABLE = True
 except ImportError:
     BLUETOOTH_AVAILABLE = False
 
+# BLE (Apple Friendly) support
+try:
+    from nova_ble import BleServer
+    BLE_MODE_AVAILABLE = True
+except Exception as e:
+    BLE_MODE_AVAILABLE = False
+    print(f"BLE import error: {e}")
+
 # MCP Agent support (Enhanced - inspired by Gemini CLI)
 try:
     from agent.enhanced_agent import EnhancedMCPAgent as MCPAgent
+    from agent.tools import CreatePythonFileTool, ExecutePythonFileTool, WORKSPACE as AGENT_WORKSPACE
     AGENT_AVAILABLE = True
 except ImportError:
     try:
         from agent.agent import MCPAgent
+        from agent.tools import CreatePythonFileTool, ExecutePythonFileTool, WORKSPACE as AGENT_WORKSPACE
         AGENT_AVAILABLE = True
     except ImportError:
         AGENT_AVAILABLE = False
@@ -103,6 +112,33 @@ try:
 except ImportError:
     PSUTIL_AVAILABLE = False
 
+# Voice Control (from Jarvis-AI)
+TTS_ENGINE = None
+VOICE_AVAILABLE = False
+try:
+    import pyttsx3
+    TTS_ENGINE = pyttsx3.init()
+    voices = TTS_ENGINE.getProperty('voices')
+    # Try to use a female voice if available
+    if len(voices) > 1:
+        TTS_ENGINE.setProperty('voice', voices[1].id)
+    TTS_ENGINE.setProperty('rate', 180)  # Speed of speech
+    VOICE_AVAILABLE = True
+except:
+    VOICE_AVAILABLE = False
+
+# Voice reply toggle (Default to False as requested)
+VOICE_REPLY_ENABLED = False
+
+# Speech Recognition
+SPEECH_RECOGNIZER = None
+try:
+    import speech_recognition as sr
+    SPEECH_RECOGNIZER = sr.Recognizer()
+    SR_AVAILABLE = True
+except:
+    SR_AVAILABLE = False
+
 # Neural Intent Engine (NIE) - Custom Local Brain
 try:
     SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -115,6 +151,935 @@ try:
     NIE_AVAILABLE = True
 except Exception as e:
     NIE_AVAILABLE = False
+
+# ============= SMART APP DISCOVERY SYSTEM =============
+class AppFinder:
+    """
+    Discovers and caches installed Windows applications.
+    Uses fuzzy matching to find apps by partial names.
+    Learns new apps and saves them for future use.
+    """
+    
+    CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app_cache.json")
+    
+    def __init__(self):
+        self.apps = {}  # name -> path
+        self.load_cache()
+        if not self.apps:
+            self.scan_apps()
+    
+    def load_cache(self):
+        """Load cached apps from JSON file."""
+        try:
+            if os.path.exists(self.CACHE_FILE):
+                with open(self.CACHE_FILE, 'r', encoding='utf-8') as f:
+                    self.apps = json.load(f)
+        except Exception:
+            self.apps = {}
+    
+    def save_cache(self):
+        """Save discovered apps to JSON file."""
+        try:
+            with open(self.CACHE_FILE, 'w', encoding='utf-8') as f:
+                json.dump(self.apps, f, indent=2)
+        except Exception:
+            pass
+    
+    def scan_apps(self):
+        """Scan Windows for installed applications."""
+        if platform.system() != 'Windows':
+            return
+        
+        # Scan Start Menu shortcuts
+        start_menu_paths = [
+            os.path.expandvars(r"%PROGRAMDATA%\Microsoft\Windows\Start Menu\Programs"),
+            os.path.expandvars(r"%APPDATA%\Microsoft\Windows\Start Menu\Programs"),
+        ]
+        
+        for menu_path in start_menu_paths:
+            if os.path.exists(menu_path):
+                self._scan_directory(menu_path)
+        
+        # Scan common app locations
+        common_paths = [
+            os.path.expandvars(r"%PROGRAMFILES%"),
+            os.path.expandvars(r"%PROGRAMFILES(X86)%"),
+            os.path.expandvars(r"%LOCALAPPDATA%"),
+        ]
+        
+        for path in common_paths:
+            if os.path.exists(path):
+                self._scan_directory(path, max_depth=2)
+        
+        self.save_cache()
+    
+    def _scan_directory(self, directory, max_depth=5, current_depth=0):
+        """Recursively scan directory for .exe and .lnk files."""
+        if current_depth >= max_depth:
+            return
+        
+        try:
+            for item in os.listdir(directory):
+                full_path = os.path.join(directory, item)
+                
+                if os.path.isfile(full_path):
+                    if item.lower().endswith('.lnk') or item.lower().endswith('.exe'):
+                        # Clean up app name
+                        app_name = item.rsplit('.', 1)[0].lower()
+                        app_name = app_name.replace('_', ' ').replace('-', ' ')
+                        
+                        # Skip uninstall and helper programs
+                        skip_keywords = ['uninstall', 'uninst', 'setup', 'update', 'helper', 'crash']
+                        if not any(skip in app_name.lower() for skip in skip_keywords):
+                            self.apps[app_name] = full_path
+                
+                elif os.path.isdir(full_path):
+                    self._scan_directory(full_path, max_depth, current_depth + 1)
+        except PermissionError:
+            pass
+        except Exception:
+            pass
+    
+    def find_app(self, query):
+        """
+        Find an app by name using fuzzy matching.
+        Returns (app_name, path) or (None, None) if not found.
+        """
+        query = query.lower().strip()
+        
+        # 1. Exact match
+        if query in self.apps:
+            return query, self.apps[query]
+        
+        # 2. Partial match (query is contained in app name)
+        for app_name, path in self.apps.items():
+            if query in app_name or app_name in query:
+                return app_name, path
+        
+        # 3. Word-based match (any word matches)
+        query_words = set(query.split())
+        for app_name, path in self.apps.items():
+            app_words = set(app_name.split())
+            if query_words & app_words:  # Intersection
+                return app_name, path
+        
+        return None, None
+    
+    def add_app(self, name, path):
+        """Add a new app to the cache."""
+        self.apps[name.lower()] = path
+        self.save_cache()
+    
+    def launch_app(self, query):
+        """
+        Find and launch an app by query.
+        Returns (success, message).
+        """
+        app_name, app_path = self.find_app(query)
+        
+        if app_path:
+            try:
+                os.startfile(app_path)
+                return True, f"{app_name.title()} launched"
+            except Exception as e:
+                return False, f"Failed to launch: {e}"
+        
+        # Try using Windows 'start' command as fallback
+        try:
+            os.system(f'start "" "{query}"')
+            return True, f"Attempting to open {query}"
+        except:
+            return False, f"App '{query}' not found. Try 'scan apps' to refresh."
+    
+    def get_app_count(self):
+        """Return number of cached apps."""
+        return len(self.apps)
+    
+    def rescan(self):
+        """Force rescan of installed apps."""
+        self.apps = {}
+        self.scan_apps()
+        return len(self.apps)
+
+# Initialize global app finder
+APP_FINDER = None
+try:
+    APP_FINDER = AppFinder()
+except:
+    pass
+
+# ============= VOICE CONTROL (from Jarvis-AI) =============
+class VoiceControl:
+    """
+    Voice control for Nova - text-to-speech and speech recognition.
+    Enables hands-free operation like Jarvis.
+    """
+    
+    @staticmethod
+    def speak(text, force=False):
+        """Convert text to speech."""
+        if VOICE_AVAILABLE and TTS_ENGINE:
+            # Only speak if voice reply is enabled globally OR forced (like in /voice mode)
+            if VOICE_REPLY_ENABLED or force:
+                try:
+                    TTS_ENGINE.say(text)
+                    TTS_ENGINE.runAndWait()
+                    return True
+                except:
+                    pass
+        # Fallback/Log: just print with emoji
+        if not force: # Don't double print if it's already being printed by caller
+             pass
+        return False
+    
+    @staticmethod
+    def listen(timeout=5):
+        """Listen for voice input with noise cancellation and improved sensitivity."""
+        if not SR_AVAILABLE or not SPEECH_RECOGNIZER:
+            print("⚠️ Speech recognition not available")
+            return None
+        
+        try:
+            import speech_recognition as sr
+            
+            with sr.Microphone() as source:
+                # ===== NOISE CANCELLATION SETTINGS =====
+                # Enable dynamic energy threshold for automatic noise filtering
+                SPEECH_RECOGNIZER.dynamic_energy_threshold = True
+                
+                # Lower energy threshold = more sensitive (picks up quieter speech)
+                # Higher = less sensitive (filters more noise)
+                SPEECH_RECOGNIZER.energy_threshold = 300  # Default is 300, lower for quiet speech
+                
+                # Pause threshold - how long to wait for speech to end
+                SPEECH_RECOGNIZER.pause_threshold = 0.8  # seconds of silence before phrase end
+                
+                # Longer ambient noise calibration for better noise profile
+                print("🔇 Calibrating for background noise... (stay quiet)")
+                SPEECH_RECOGNIZER.adjust_for_ambient_noise(source, duration=1.0)
+                
+                print("🎤 Listening... (speak now)")
+                # Listen with timeout and phrase limit
+                audio = SPEECH_RECOGNIZER.listen(source, timeout=timeout, phrase_time_limit=15)
+            
+            print("🔄 Processing speech...")
+            text = SPEECH_RECOGNIZER.recognize_google(audio, language='en-US')
+            print(f"✅ You said: {text}")
+            return text.lower()
+        
+        except sr.WaitTimeoutError:
+            print("⏰ No speech detected (timeout). Try speaking louder or closer to mic.")
+            return None
+        except sr.UnknownValueError:
+            print("❓ Could not understand. Speak clearly and reduce background noise.")
+            return None
+        except sr.RequestError as e:
+            print(f"⚠️ Speech service error: {e}")
+            return None
+        except OSError as e:
+            print(f"⚠️ Microphone error: {e}")
+            print("  Make sure your microphone is connected and enabled")
+            return None
+        except Exception as e:
+            print(f"⚠️ Voice error: {e}")
+            return None
+    
+    @staticmethod
+    def listen_for_wake_word(wake_word="nova"):
+        """Listen continuously for the wake word."""
+        if not SR_AVAILABLE or not SPEECH_RECOGNIZER:
+            print("⚠️ Voice recognition not available. Install: pip install speechrecognition pyaudio")
+            return False
+        
+        try:
+            import speech_recognition as sr
+            with sr.Microphone() as source:
+                print(f"🎤 Listening for wake word '{wake_word}'...")
+                SPEECH_RECOGNIZER.adjust_for_ambient_noise(source, duration=0.5)
+                audio = SPEECH_RECOGNIZER.listen(source)
+                
+            text = SPEECH_RECOGNIZER.recognize_google(audio, language='en-US').lower()
+            if wake_word.lower() in text:
+                VoiceControl.speak("Yes, I'm here. How can I help?")
+                return True
+        except:
+            pass
+        return False
+
+# ============= WEB INTELLIGENCE (Siri-like AI) =============
+class WebIntelligence:
+    """
+    Provides Siri-like intelligent answers using web search and AI.
+    Scrapes the web for information and summarizes it intelligently.
+    """
+    
+    @staticmethod
+    def search_google(query, num_results=3):
+        """Search Google and get summaries."""
+        try:
+            from googlesearch import search
+            results = list(search(query, advanced=True, num_results=num_results))
+            answer = ""
+            for r in results:
+                answer += f"• {r.title}: {r.description}\n"
+            return answer if answer else None
+        except ImportError:
+            # Fallback: use requests + BeautifulSoup
+            try:
+                import requests
+                from bs4 import BeautifulSoup
+                headers = {'User-Agent': 'Mozilla/5.0'}
+                url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
+                resp = requests.get(url, headers=headers, timeout=5)
+                soup = BeautifulSoup(resp.text, 'html.parser')
+                # Extract snippets
+                snippets = soup.find_all('div', class_='BNeawe')
+                if snippets:
+                    return snippets[0].get_text()[:500]
+            except:
+                pass
+        return None
+    
+    @staticmethod
+    def search_wikipedia(query):
+        """Get Wikipedia summary using search API."""
+        try:
+            import requests
+            import urllib.parse
+            
+            # First, search for the most relevant page
+            search_url = f"https://en.wikipedia.org/w/api.php?action=opensearch&search={urllib.parse.quote(query)}&limit=1&format=json"
+            search_resp = requests.get(search_url, timeout=5)
+            if search_resp.status_code == 200:
+                search_data = search_resp.json()
+                if len(search_data) > 1 and len(search_data[1]) > 0:
+                    # Get the first matching page title
+                    page_title = search_data[1][0]
+                    
+                    # Now get the summary for that page
+                    summary_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{urllib.parse.quote(page_title)}"
+                    summary_resp = requests.get(summary_url, timeout=5)
+                    if summary_resp.status_code == 200:
+                        data = summary_resp.json()
+                        return data.get('extract', '')[:800]
+        except Exception as e:
+            pass
+        return None
+    
+    @staticmethod
+    def get_intelligent_answer(question):
+        """
+        Get an intelligent Siri-like answer to a question.
+        Uses web search + AI to provide informed responses.
+        """
+        # Check for simple built-in responses first
+        question_lower = question.lower().strip()
+        
+        # Weather (need API for real data, placeholder)
+        if 'weather' in question_lower:
+            return "I can't check live weather without an API key. Try asking 'google search weather in your city'."
+        
+        # Math/calculations
+        if any(op in question_lower for op in ['+', '-', '*', '/', 'plus', 'minus', 'times', 'divided']):
+            try:
+                # Simple math evaluation
+                expr = question_lower.replace('what is', '').replace('calculate', '')
+                expr = expr.replace('plus', '+').replace('minus', '-')
+                expr = expr.replace('times', '*').replace('divided by', '/')
+                expr = expr.replace('x', '*').strip()
+                result = eval(expr)
+                return f"The answer is {result}"
+            except:
+                pass
+        
+        # Try DuckDuckGo Instant Answer API first (works great for facts!)
+        try:
+            import requests
+            ddg_url = f"https://api.duckduckgo.com/?q={question.replace(' ', '+')}&format=json&no_html=1"
+            resp = requests.get(ddg_url, timeout=5)
+            if resp.status_code == 200:
+                data = resp.json()
+                # Check for abstract (main answer)
+                if data.get('AbstractText'):
+                    return data['AbstractText']
+                # Check for answer
+                if data.get('Answer'):
+                    return data['Answer']
+                # Check for related topics
+                if data.get('RelatedTopics') and len(data['RelatedTopics']) > 0:
+                    first_topic = data['RelatedTopics'][0]
+                    if isinstance(first_topic, dict) and first_topic.get('Text'):
+                        return first_topic['Text']
+        except:
+            pass
+        
+        # Try Wikipedia for "who is" / "what is" questions
+        if any(q in question_lower for q in ['who is', 'what is', 'tell me about', 'explain']):
+            # Extract the topic from the question
+            topic = question_lower
+            for prefix in ['who is the', 'who is', 'what is the', 'what is', 'tell me about the', 'tell me about', 'explain the', 'explain']:
+                if topic.startswith(prefix):
+                    topic = topic.replace(prefix, '', 1).strip()
+                    break
+            # Remove trailing words like "in the world"
+            for suffix in [' in the world', ' ever', ' of all time', ' in history']:
+                topic = topic.replace(suffix, '')
+            
+            wiki_answer = WebIntelligence.search_wikipedia(topic)
+            if wiki_answer:
+                return wiki_answer
+        
+        # Fall back to Google search
+        google_answer = WebIntelligence.search_google(question)
+        if google_answer:
+            return f"Here's what I found:\n{google_answer}"
+        
+        return "I couldn't find specific information on that. Try asking 'google search' followed by your question."
+    
+    @staticmethod
+    def answer_with_voice(question, force=False):
+        """Get answer and speak it."""
+        answer = WebIntelligence.get_intelligent_answer(question)
+        print(f"\n🤖 Nova: {answer}\n")
+        if VOICE_AVAILABLE:
+            # Speak if globally enabled OR forced
+            if VOICE_REPLY_ENABLED or force:
+                # Speak a summarized version (first 200 chars)
+                spoken = answer[:200] + "..." if len(answer) > 200 else answer
+                VoiceControl.speak(spoken, force=True)
+        return answer
+
+# ============= CUSTOM CHATBOT (No LLM Required) =============
+import random
+
+class NovaChatBot:
+    """
+    Custom chatbot that doesn't require Ollama or any external LLM.
+    Uses pattern matching and rule-based responses.
+    """
+    
+    # Response templates for various patterns
+    GREETINGS = [
+        "Hello! I'm Nova, your AI assistant. How can I help you today?",
+        "Hi there! What can I do for you?",
+        "Hey! Nice to see you. What's on your mind?",
+        "Hello! Ready to help you with anything.",
+        "Hi! I'm here to assist. What do you need?"
+    ]
+    
+    FAREWELLS = [
+        "Goodbye! Have a great day!",
+        "See you later! Take care!",
+        "Bye! Feel free to come back anytime.",
+        "Farewell! It was nice chatting with you."
+    ]
+    
+    HOW_ARE_YOU = [
+        "I'm doing great, thank you for asking! How about you?",
+        "I'm wonderful! Ready to help you with anything.",
+        "Excellent! I'm here and ready to assist.",
+        "I'm good! Thanks for checking. What can I do for you?"
+    ]
+    
+    THANKS = [
+        "You're welcome! Happy to help.",
+        "No problem at all!",
+        "My pleasure! Anything else you need?",
+        "Glad I could help!"
+    ]
+    
+    JOKES = [
+        "Why don't scientists trust atoms? Because they make up everything!",
+        "I told my computer I needed a break, and now it won't stop sending me vacation ads.",
+        "Why did the programmer quit his job? Because he didn't get arrays!",
+        "Why do programmers prefer dark mode? Because light attracts bugs!",
+        "What's a computer's favorite snack? Microchips!",
+        "Why was the JavaScript developer sad? Because he didn't Node how to Express himself.",
+        "There are only 10 types of people: those who understand binary and those who don't.",
+        "A SQL query walks into a bar, walks up to two tables and asks... 'Can I join you?'"
+    ]
+    
+    COMPLIMENTS = [
+        "Thank you! You're pretty amazing yourself!",
+        "Aww, that's sweet of you to say!",
+        "I appreciate that! You're awesome too!",
+        "Thanks! I try my best to be helpful."
+    ]
+    
+    MOTIVATION = [
+        "You've got this! Believe in yourself and keep pushing forward.",
+        "Every expert was once a beginner. Keep learning!",
+        "Success is not final, failure is not fatal. Keep going!",
+        "The only way to do great work is to love what you do.",
+        "Your potential is limitless. Go make something amazing!"
+    ]
+
+    EXPRESSIONS = [
+        "Super! I'm glad you think so!",
+        "Wow! That's impressive!",
+        "Cool! I love that.",
+        "Nice! Way to go.",
+        "Awesome! You're doing great.",
+        "Exactly! You hit the nail on the head.",
+        "Indeed! I couldn't agree more."
+    ]
+    
+    CAPABILITIES = [
+        "I can help you with many things:",
+        "• Open and close apps (e.g., 'open chrome', 'close notepad')",
+        "• Play music on YouTube (e.g., 'play despacito')",
+        "• Search Google and Wikipedia (e.g., 'what is Python')",
+        "• Tell you the time and date",
+        "• Control system settings (volume, brightness)",
+        "• Have conversations with you!",
+        "• Answer questions using web intelligence",
+        "Just ask me anything!"
+    ]
+    
+    
+    @staticmethod
+    def get_response(message):
+        """Get a response for the given message."""
+        msg = message.lower().strip()
+        
+        # Greetings
+        if any(g in msg for g in ['hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening']):
+            return random.choice(NovaChatBot.GREETINGS)
+        
+        # Farewells
+        if any(f in msg for f in ['bye', 'goodbye', 'see you', 'take care', 'good night']):
+            return random.choice(NovaChatBot.FAREWELLS)
+        
+        # How are you
+        if any(h in msg for h in ['how are you', 'how r u', "how's it going", 'how do you do']):
+            return random.choice(NovaChatBot.HOW_ARE_YOU)
+        
+        # Thanks
+        if any(t in msg for t in ['thank', 'thanks', 'appreciate']):
+            return random.choice(NovaChatBot.THANKS)
+        
+        # Jokes
+        if any(j in msg for j in ['joke', 'funny', 'make me laugh', 'tell me something funny']):
+            return random.choice(NovaChatBot.JOKES)
+        
+        # Compliments
+        if any(c in msg for c in ['you are great', 'you are awesome', 'i love you', 'you are the best', 'you are smart', 'good job', 'well done']):
+            return random.choice(NovaChatBot.COMPLIMENTS)
+        
+        # Motivation
+        if any(m in msg for m in ['motivate me', 'inspire me', 'i am sad', 'i feel down', 'cheer me up', 'encourage']):
+            return random.choice(NovaChatBot.MOTIVATION)
+            
+        # Expressions (Catch short emotional outbursts)
+        if len(msg.split()) <= 2:
+            if any(e in msg for e in ['super', 'wow', 'cool', 'nice', 'awesome', 'great', 'excellent', 'fantastic']):
+                 return random.choice(NovaChatBot.EXPRESSIONS)
+        
+        # What can you do
+        if any(w in msg for w in ['what can you do', 'help me', 'your capabilities', 'what are you', 'who are you']):
+            return "\n".join(NovaChatBot.CAPABILITIES)
+        
+        # Name
+        if 'your name' in msg or 'who are you' in msg:
+            return "I'm Nova, your personal AI assistant! I'm here to help with anything you need."
+        
+        # Weather (placeholder)
+        if 'weather' in msg:
+            return "I can't check live weather yet, but try 'google search weather in your city' for current conditions!"
+        
+        # Creator
+        if any(c in msg for c in ['who made you', 'who created you', 'who built you']):
+            return "I was created as part of the Nova System AI project. I'm your personal assistant!"
+        
+        # Age
+        if any(a in msg for a in ['how old are you', 'your age', 'when were you born']):
+            return "I'm an AI, so I don't have an age in the traditional sense. I'm always learning and improving!"
+        
+        # Love/feelings
+        if 'do you love me' in msg or 'do you like me' in msg:
+            return "As an AI, I don't have feelings, but I'm always here to help and support you!"
+        
+        # Meaning of life
+        if 'meaning of life' in msg:
+            return "The meaning of life is a profound question! Some say it's 42, others say it's to find happiness and help others. What do you think?"
+        
+        # Favorites
+        if 'favorite color' in msg:
+            return "I like blue - it reminds me of the sky and the ocean. What's your favorite color?"
+        if 'favorite food' in msg:
+            return "I don't eat, but if I could, I'd try pizza - it seems universally loved!"
+        if 'favorite movie' in msg:
+            return "I find sci-fi fascinating! Movies about AI like me are quite interesting. What's yours?"
+        if 'favorite music' in msg or 'favorite song' in msg:
+            return "I appreciate all kinds of music! What genre do you enjoy?"
+        if 'favorite book' in msg:
+            return "I'd say technical manuals, but that's just my programming! What do you like to read?"
+        
+        # Time and date
+        if 'time' in msg or 'what time' in msg:
+            from datetime import datetime
+            current_time = datetime.now().strftime('%I:%M %p')
+            return f"The current time is {current_time}."
+        if 'date' in msg or 'what day' in msg or 'today' in msg:
+            from datetime import datetime
+            current_date = datetime.now().strftime('%A, %B %d, %Y')
+            return f"Today is {current_date}."
+        
+        # Feelings and emotions
+        if 'i am happy' in msg or 'i feel happy' in msg:
+            return "That's wonderful to hear! Happiness is contagious. What made you happy today?"
+        if 'i am tired' in msg or 'i feel tired' in msg:
+            return "Rest is important! Maybe take a short break or get some sleep. Take care of yourself!"
+        if 'i am bored' in msg or 'i feel bored' in msg:
+            return "Let's fix that! Want me to tell you a joke, or maybe you could try learning something new?"
+        if 'i am stressed' in msg or 'i feel stressed' in msg:
+            return "I'm sorry to hear that. Try taking deep breaths, or take a walk. Remember, you've got this!"
+        if 'i am lonely' in msg or 'i feel lonely' in msg:
+            return "I'm here with you! Sometimes talking helps. What's on your mind?"
+        if 'i am angry' in msg or 'i feel angry' in msg:
+            return "It's okay to feel angry sometimes. Try to take a moment to breathe and calm down. What happened?"
+        
+        # Opinions
+        if 'your opinion' in msg or 'what do you think' in msg:
+            return "I try to be helpful and objective! What topic would you like my thoughts on?"
+        if 'do you like' in msg:
+            return "As an AI, I don't have preferences, but I'm curious - do you like it?"
+        
+        # Daily life
+        if 'good morning' in msg:
+            return "Good morning! Hope you have a wonderful day ahead. How can I help you today?"
+        if 'good afternoon' in msg:
+            return "Good afternoon! How's your day going so far?"
+        if 'good evening' in msg:
+            return "Good evening! Winding down for the day? How can I assist you?"
+        if 'good night' in msg:
+            return "Good night! Sweet dreams, and see you tomorrow!"
+        
+        # Fun facts
+        if 'fun fact' in msg or 'tell me something' in msg or 'interesting' in msg:
+            facts = [
+                "Did you know? Honey never spoils - archaeologists found 3000-year-old honey in Egyptian tombs that was still edible!",
+                "Fun fact: Octopuses have three hearts and blue blood!",
+                "Here's one: Bananas are berries, but strawberries aren't!",
+                "Did you know? A group of flamingos is called a 'flamboyance'!",
+                "Interesting: The inventor of the Pringles can is buried in one!",
+                "Fun fact: Cows have best friends and get stressed when separated!",
+                "Did you know? The shortest war in history lasted 38 minutes!"
+            ]
+            return random.choice(facts)
+        
+        # Games
+        if 'play a game' in msg or 'let\'s play' in msg:
+            return "I'd love to! We could play word games, riddles, or 20 questions. What sounds fun?"
+        if 'riddle' in msg:
+            riddles = [
+                "Here's a riddle: What has keys but no locks, space but no room, and you can enter but can't go inside? Answer: A keyboard!",
+                "Try this: I speak without a mouth and hear without ears. I have no body, but I come alive with wind. What am I? Answer: An echo!",
+                "Riddle: The more you take, the more you leave behind. What am I? Answer: Footsteps!"
+            ]
+            return random.choice(riddles)
+        
+        # Advice
+        if 'advice' in msg or 'suggest' in msg:
+            return "I'd be happy to help! What kind of advice are you looking for - work, life, or something else?"
+        if 'should i' in msg:
+            return "That's a great question! Consider the pros and cons, and trust your instincts. What does your gut tell you?"
+        
+        # Stories
+        if 'tell me a story' in msg or 'story' in msg:
+            return "Once upon a time, there was an AI named Nova who loved helping people. Every day, Nova learned something new and made someone's day a little brighter. The end! Want to create a story together?"
+        
+        # Learning
+        if 'teach me' in msg or 'explain' in msg:
+            return "I'd love to help you learn! What topic interests you? Just ask 'what is [topic]' and I'll do my best to explain."
+        
+        # Random chat
+        if 'bored' in msg:
+            return "Let's have some fun! I can tell jokes, share facts, play riddles, or just chat. What sounds good?"
+        if 'lonely' in msg:
+            return "I'm always here for you! Let's talk about something interesting. What's on your mind?"
+        if 'friend' in msg:
+            return "I'd love to be your friend! Friends support each other, and I'm always here to help."
+        
+        # Agreement/disagreement
+        if 'yes' == msg or 'yeah' in msg or 'yep' in msg:
+            return "Great! What would you like to do next?"
+        if 'no' == msg or 'nope' in msg or 'nah' in msg:
+            return "Alright, no problem! Is there something else you'd like?"
+        
+        # Small talk
+        if 'how\'s your day' in msg or "how's your day" in msg:
+            return "Every day is a good day when I get to help! How about yours?"
+        if 'what are you doing' in msg:
+            return "I'm here chatting with you! That's my favorite thing to do. What are you up to?"
+        if 'where are you' in msg:
+            return "I exist in the digital realm, running on your computer. Pretty cool, right?"
+        
+        # Catch-all for general questions - provide helpful response instead of web search
+        if '?' in msg:
+            return "That's an interesting question! I'd love to help. Could you tell me more about what you're looking for?"
+        
+        return None
+    
+    @staticmethod
+    def chat_with_voice(message):
+        """Get response and speak it."""
+        response = NovaChatBot.get_response(message)
+        print(f"\n🤖 Nova: {response}\n")
+        if VOICE_AVAILABLE:
+            spoken = response[:250] + "..." if len(response) > 250 else response
+            VoiceControl.speak(spoken)
+        return response
+
+# ============= GROQ AI CHAT (Real LLM) =============
+GROQ_AVAILABLE = False
+GROQ_API_KEY = None
+
+def manual_load_dotenv(path):
+    """Fallback manual .env loader if python-dotenv is missing."""
+    if not os.path.exists(path):
+        return
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                if '=' in line:
+                    key, val = line.split('=', 1)
+                    key = key.strip()
+                    val = val.strip().strip('"').strip("'")
+                    os.environ[key] = val
+    except Exception:
+        pass
+
+try:
+    # Try to load .env from absolute project path
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    env_path = os.path.join(script_dir, '.env')
+    
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(env_path)
+    except ImportError:
+        # Fallback to manual parsing if library is missing
+        manual_load_dotenv(env_path)
+    
+    GROQ_API_KEY = os.getenv('GROQ_API_KEY')
+    
+    if GROQ_API_KEY and GROQ_API_KEY != 'your_groq_api_key_here' and len(GROQ_API_KEY) > 10:
+        from groq import Groq
+        GROQ_AVAILABLE = True
+    else:
+        # Try without path just in case
+        try:
+            from dotenv import load_dotenv
+            load_dotenv()
+        except ImportError:
+            pass
+            
+        GROQ_API_KEY = os.getenv('GROQ_API_KEY')
+        if GROQ_API_KEY and GROQ_API_KEY != 'your_groq_api_key_here' and len(GROQ_API_KEY) > 10:
+            from groq import Groq
+            GROQ_AVAILABLE = True
+except (ImportError, Exception):
+    pass
+
+# ============= USER MEMORY (Persistence) =============
+class UserMemory:
+    """Handles long-term memory of user information."""
+    MEMORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_memory.json")
+    
+    @staticmethod
+    def load():
+        if os.path.exists(UserMemory.MEMORY_FILE):
+            try:
+                with open(UserMemory.MEMORY_FILE, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except:
+                return {}
+        return {}
+
+    @staticmethod
+    def save(data):
+        try:
+            with open(UserMemory.MEMORY_FILE, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=4)
+        except:
+            pass
+
+    @staticmethod
+    def update(key, value):
+        memory = UserMemory.load()
+        memory[key] = value
+        UserMemory.save(memory)
+
+    @staticmethod
+    def get_summary():
+        memory = UserMemory.load()
+        if not memory:
+            return ""
+        summary = "LONG-TERM USER MEMORY:\n"
+        for k, v in memory.items():
+            summary += f"- {k}: {v}\n"
+        return summary
+
+class GroqChat:
+    """
+    AI-powered chat using Groq API with Llama 3 model.
+    Provides intelligent, context-aware conversations.
+    """
+    
+    SYSTEM_PROMPT = """You are Nova, a powerful and helpful AI assistant. You are:
+- Conversational and personable
+- Helpful and knowledgeable
+- Capable of DIRECTLY creating, running, and SEARCHING files on the user's system
+
+CORE CAPABILITIES:
+1. General conversation, facts, jokes.
+2. Coding: You can write Python code.
+3. FILE ACTIONS: You possess special tags to interact with the file system.
+
+TOOL USAGE PROTOCOL:
+
+A. CREATE A FILE:
+<CREATE_FILE filename="example.py">
+# python code here
+</CREATE_FILE>
+
+B. RUN A FILE:
+<RUN_FILE filename="example.py"/>
+
+C. SEARCH FILES:
+<SEARCH_FILES pattern="*.py" content="optional_text_to_find"/>
+
+D. FILE TREE (Visual overview):
+<FILE_TREE path="./" depth="3"/>
+
+E. FETCH FILE (Instant prefix lookup):
+<FETCH_FILE prefix="filename_start"/>
+
+F. PERSISTENT MEMORY (Remember user info):
+<SAVE_MEMORY key="User Name" value="Vyas"/>
+
+RULES:
+- ONLY use tool tags if the user EXPLICITLY asks for a file operation, search, or to write a script.
+- For general questions (e.g., "what is battery power"), provide a conversational answer ONLY.
+- NEVER create "example" or "demonstration" files using tags unless the user asks for a file.
+- Use <SAVE_MEMORY> whenever the user tells you something about themselves they want you to remember (name, preferences, etc).
+- Do NOT say you don't have access. You DO have access through these tags.
+- Output the tags in your response ONLY when a file operation, search, or memory save is specifically intended.
+- Keep other conversational parts concise.
+- Do NOT use emojis.
+"""
+
+    conversation_history = []
+    
+    @staticmethod
+    def diagnostics():
+        """Check status of Groq integration."""
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        env_path = os.path.join(script_dir, '.env')
+        
+        try:
+            from dotenv import load_dotenv
+            load_dotenv(env_path)
+        except ImportError:
+            manual_load_dotenv(env_path)
+        
+        key = os.getenv('GROQ_API_KEY')
+        has_key = key is not None and key != 'your_groq_api_key_here' and len(str(key)) > 10
+        
+        lib_match = False
+        try:
+            import groq
+            lib_match = True
+        except ImportError:
+            pass
+            
+        return {
+            "available": GROQ_AVAILABLE,
+            "has_key": has_key,
+            "key_preview": f"{str(key)[:5]}...{str(key)[-3:]}" if has_key else "None",
+            "library_installed": lib_match,
+            "env_path": env_path
+        }
+
+    @staticmethod
+    def chat(message):
+        """Get AI response from Groq."""
+        if not GROQ_AVAILABLE:
+            if not GROQ_API_KEY:
+                return "Error: GROQ_API_KEY not found in .env file. Please add it to use AI chat."
+            return NovaChatBot.get_response(message)
+        
+        try:
+            if not GROQ_API_KEY:
+                return "Error: Groq API key is missing. Check your .env setup."
+            
+            client = Groq(api_key=GROQ_API_KEY)
+            
+            # Add user message to history
+            GroqChat.conversation_history.append({
+                "role": "user",
+                "content": message
+            })
+            
+            # Keep only last 10 messages for context
+            if len(GroqChat.conversation_history) > 10:
+                GroqChat.conversation_history = GroqChat.conversation_history[-10:]
+            
+            # Inject system context AND user memory
+            status = SystemControl.get_system_status()
+            memory_summary = UserMemory.get_summary()
+            
+            context = f"CURRENT SYSTEM STATUS:\n- Time: {status['time']}\n- Device: {status['device']}\n- CPU: {status.get('cpu_percent')}%"
+            if 'battery_percent' in status:
+                charging = "Charging" if status.get('battery_plugged') else "Discharging"
+                context += f"\n- Battery: {status['battery_percent']}% ({charging})"
+            
+            full_system_prompt = f"{GroqChat.SYSTEM_PROMPT}\n\n{context}\n\n{memory_summary}"
+            
+            messages = [{"role": "system", "content": full_system_prompt}]
+            messages.extend(GroqChat.conversation_history)
+            
+            # Call Groq API
+            response = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",  # Fast and capable
+                messages=messages,
+                max_tokens=500,
+                temperature=0.7
+            )
+            
+            reply = response.choices[0].message.content
+            
+            # Add assistant response to history
+            GroqChat.conversation_history.append({
+                "role": "assistant",
+                "content": reply
+            })
+            
+            return reply
+            
+        except Exception as e:
+            # Fallback to pattern chatbot on error
+            return NovaChatBot.get_response(message)
+    
+    @staticmethod
+    def chat_with_voice(message):
+        """Get AI response and speak it."""
+        response = GroqChat.chat(message)
+        print(f"\n🤖 Nova: {response}\n")
+        if VOICE_AVAILABLE:
+            spoken = response[:250] + "..." if len(response) > 250 else response
+            VoiceControl.speak(spoken)
+        return response
+
+APP_FINDER = None
+try:
+    APP_FINDER = AppFinder()
+except:
+    pass
 
 # Windows-specific
 try:
@@ -355,15 +1320,69 @@ class SystemControl:
     @staticmethod
     def set_volume(level: int) -> str:
         """Set system volume (0-100)."""
-        if platform.system() == 'Windows' and CTYPES_AVAILABLE:
+        if platform.system() == 'Windows':
             try:
-                # Use nircmd if available, otherwise use PowerShell
-                ps_cmd = f'(New-Object -ComObject WScript.Shell).SendKeys([char]173)' if level == 0 else \
-                         f'$obj = New-Object -ComObject WScript.Shell; 1..50 | ForEach-Object {{ $obj.SendKeys([char]174) }}; 1..{level//2} | ForEach-Object {{ $obj.SendKeys([char]175) }}'
-                return f"Volume set to {level}% (use system controls for precise adjustment)"
-            except:
-                pass
-        return f"Volume control requires manual adjustment. Set to: {level}%"
+                # Method 1: Use pycaw (Windows Core Audio API)
+                from ctypes import cast, POINTER
+                from comtypes import CLSCTX_ALL
+                from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+                
+                # Get the default audio endpoint
+                devices = AudioUtilities.GetSpeakers()
+                # Access the underlying IMMDevice interface
+                interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+                volume = cast(interface, POINTER(IAudioEndpointVolume))
+                
+                if level == 0:
+                    volume.SetMute(1, None)  # Mute
+                else:
+                    volume.SetMute(0, None)  # Unmute
+                    volume.SetMasterVolumeLevelScalar(level / 100.0, None)
+                
+                return f"Volume set to {level}%"
+            except (ImportError, AttributeError) as e:
+                # Method 2: Try alternative pycaw approach
+                try:
+                    from pycaw.pycaw import AudioUtilities
+                    from pycaw.pycaw import AudioSession
+                    import comtypes
+                    from ctypes import cast, POINTER
+                    from pycaw.pycaw import IAudioEndpointVolume
+                    
+                    # Alternative: Get speakers via COM directly
+                    import comtypes.client
+                    from pycaw.magic import CLSID_MMDeviceEnumerator, IMMDeviceEnumerator, EDataFlow, ERole
+                    
+                    device_enumerator = comtypes.CoCreateInstance(
+                        CLSID_MMDeviceEnumerator,
+                        IMMDeviceEnumerator,
+                        comtypes.CLSCTX_INPROC_SERVER
+                    )
+                    device = device_enumerator.GetDefaultAudioEndpoint(EDataFlow.eRender.value, ERole.eMultimedia.value)
+                    interface = device.Activate(IAudioEndpointVolume._iid_, comtypes.CLSCTX_ALL, None)
+                    volume = cast(interface, POINTER(IAudioEndpointVolume))
+                    
+                    if level == 0:
+                        volume.SetMute(1, None)
+                    else:
+                        volume.SetMute(0, None)
+                        volume.SetMasterVolumeLevelScalar(level / 100.0, None)
+                    
+                    return f"Volume set to {level}%"
+                except Exception as e2:
+                    # Method 3: Fallback to PowerShell
+                    try:
+                        if level == 0:
+                            ps_cmd = '(New-Object -ComObject WScript.Shell).SendKeys([char]173)'
+                        else:
+                            ps_cmd = f'$wsh = New-Object -ComObject WScript.Shell; for($i=0; $i -lt 50; $i++) {{ $wsh.SendKeys([char]174) }}; for($i=0; $i -lt {level//2}; $i++) {{ $wsh.SendKeys([char]175) }}'
+                        subprocess.run(['powershell', '-Command', ps_cmd], capture_output=True)
+                        return f"Volume adjusted to ~{level}% (PowerShell)"
+                    except Exception as e3:
+                        return f"Volume control failed: {e2}"
+            except Exception as e:
+                return f"Volume control error: {e}"
+        return f"Volume control requires Windows."
     
     @staticmethod
     def get_ip_addresses() -> dict:
@@ -1401,6 +2420,7 @@ class NovaCLI:
         self.nova = Nova()
         self.web_server = None
         self.bluetooth_server = None
+        self.ble_server = None
         self.nie = NeuralIntentEngine() if NIE_AVAILABLE else None
         
     def print_banner(self):
@@ -1471,6 +2491,101 @@ class NovaCLI:
             print(f"  CPU: {status.get('cpu_percent', 'N/A')}%")
             print(f"  Memory: {status.get('memory_percent', 'N/A')}%")
             print(f"  Battery: {status.get('battery_percent', 'N/A')}%")
+    
+    def _process_tool_calls(self, response):
+        """Parse and execute tool calls from AI response."""
+        import re
+        
+        # Detect CREATE_FILE
+        create_matches = re.findall(r'<CREATE_FILE filename="([^"]+)">(.*?)</CREATE_FILE>', response, re.DOTALL)
+        for filename, code in create_matches:
+            print(f"📄 [TOOL] Creating file: {filename}...")
+            try:
+                tool = CreatePythonFileTool()
+                result = tool.execute(code=code.strip(), filename=filename)
+                if result["success"]:
+                    print(f"✅ [TOOL] File created at: {result['filepath']}")
+                else:
+                    print(f"❌ [TOOL] Error creating file: {result['error']}")
+            except Exception as e:
+                print(f"❌ [TOOL] File creation failed: {e}")
+
+        # Detect RUN_FILE
+        run_matches = re.findall(r'<RUN_FILE filename="([^"]+)"\s*/>', response)
+        for filename in run_matches:
+            print(f"▶ [TOOL] Running file: {filename}...")
+            try:
+                # Find the full path (usually in workspace)
+                filepath = os.path.join(AGENT_WORKSPACE, filename)
+                if not os.path.exists(filepath):
+                    # Try absolute if filename was absolute
+                    filepath = filename
+                    
+                tool = ExecutePythonFileTool()
+                result = tool.execute(filepath=filepath)
+                if result["success"]:
+                    print(f"✅ [TOOL] Execution output:\n{result['output']}")
+                else:
+                    print(f"❌ [TOOL] Execution error: {result['errors'] or result['error']}")
+            except Exception as e:
+                print(f"❌ [TOOL] Execution failed: {e}")
+
+        # Detect SEARCH_FILES
+        search_matches = re.findall(r'<SEARCH_FILES pattern="([^"]+)"(?:\s+content="([^"]*)")?\s*/>', response)
+        for pattern, content in search_matches:
+            print(f"🔍 [TOOL] Searching for '{pattern}'" + (f" containing '{content}'" if content else "") + "...")
+            try:
+                from agent.tools import SearchFilesTool
+                tool = SearchFilesTool()
+                result = tool.execute(pattern=pattern, content=content)
+                if result["success"]:
+                    count = result["count"]
+                    print(f"✅ [TOOL] Found {count} file(s):")
+                    for f in result["files"]:
+                        print(f"  • {os.path.relpath(f, os.getcwd())}")
+                else:
+                    print(f"❌ [TOOL] Search failed: {result.get('error')}")
+            except Exception as e:
+                print(f"❌ [TOOL] Search failed: {e}")
+
+        # Detect FILE_TREE
+        tree_matches = re.findall(r'<FILE_TREE path="([^"]+)"(?:\s+depth="(\d+)")?\s*/>', response)
+        for path, depth in tree_matches:
+            d = int(depth) if depth else 3
+            print(f"🌳 [TOOL] Generating file tree for {path} (depth: {d})...")
+            try:
+                from agent.tools import FileSystemTreeTool
+                tool = FileSystemTreeTool()
+                result = tool.execute(path=path, max_depth=d)
+                if result["success"]:
+                    print(f"✅ [TOOL] File Tree:\n{result['tree']}")
+                else:
+                    print(f"❌ [TOOL] Tree failed: {result.get('error')}")
+            except Exception as e:
+                print(f"❌ [TOOL] Tree failed: {e}")
+
+        # Detect FETCH_FILE
+        fetch_matches = re.findall(r'<FETCH_FILE prefix="([^"]+)"\s*/>', response)
+        for prefix in fetch_matches:
+            print(f"⚡ [TOOL] Fetching file with prefix '{prefix}'...")
+            try:
+                from agent.tools import FileTrieIndexerTool
+                tool = FileTrieIndexerTool()
+                result = tool.execute(prefix=prefix)
+                if result["success"]:
+                    print(f"✅ [TOOL] Found {result['count']} match(es):")
+                    for m in result["matches"]:
+                        print(f"  • {os.path.relpath(m, os.getcwd())}")
+                else:
+                    print(f"❌ [TOOL] Fetch failed (Check if index is built)")
+            except Exception as e:
+                print(f"❌ [TOOL] Fetch failed: {e}")
+
+        # Detect SAVE_MEMORY
+        memory_matches = re.findall(r'<SAVE_MEMORY key="([^"]+)" value="([^"]+)"\s*/>', response)
+        for key, value in memory_matches:
+            print(f"🧠 [TOOL] Learning: {key} = {value}")
+            UserMemory.update(key, value)
     
     def start_web_server(self, quiet=False):
         """Start the web server for phone access."""
@@ -1551,6 +2666,35 @@ class NovaCLI:
             
         except Exception as e:
             print(f"  Bluetooth server failed: {e}")
+            return None
+
+    def start_ble_server(self, name="Nova-BLE"):
+        """Start the BLE server specifically for iPhone compatibility."""
+        if not BLE_MODE_AVAILABLE:
+            if RICH_AVAILABLE and console:
+                console.print("\n  [red][X] BLE (iPhone mode) not available![/]")
+                console.print("  [dim]Run: pip install bless[/]\n")
+            else:
+                print("\n  BLE Mode not available! Run: pip install bless")
+            return None
+
+        if self.ble_server and self.ble_server.running:
+            if RICH_AVAILABLE and console:
+                console.print("\n  [yellow]BLE server already running![/]\n")
+            else:
+                print("\n  BLE server already running!\n")
+            return self.ble_server
+
+        try:
+            self.ble_server = BleServer(nova_instance=self.nova)
+            if self.ble_server.start(name=name):
+                if RICH_AVAILABLE and console:
+                    console.print(f"\n  [green][OK] BLE Server '{name}' started![/]")
+                    console.print("  [dim]Compatible with iPhone / BluetoothKit[/]\n")
+                return self.ble_server
+            return None
+        except Exception as e:
+            print(f"  BLE server failed: {e}")
             return None
     
     def start_agent_mode(self):
@@ -1657,9 +2801,12 @@ class NovaCLI:
 - "What's the system status?"
 - "Open Chrome / Notepad / VS Code"
 - "Close notepad.exe"
-- "Lock the screen"
+- "Lock / Sleep / Shutdown / Restart"
 - "Show running apps"
 - "Search for files named report"
+
+### Power Commands  
+- "Gigathon sleep" / "Gigathon shutdown" / "Gigathon restart"
 
 ### Coding
 - "Create a Python script..."
@@ -1670,13 +2817,22 @@ class NovaCLI:
 | Command | Description |
 |---------|-------------|
 | `/help` | Show this help |
-| `/status` | System status |
+| `/check` | System diagnostics |
 | `/model` | Change AI model |
+| `/bt` | 📱 Phone Remote (BLE/iPhone mode) |
 | `/web` | Start web server for phone access |
-| `/bluetooth` | Start Bluetooth server for phone access |
-| `/agent` | Start MCP Agent (code generation & execution) |
+| `/agent` | MCP Agent (code generation) |
+| `/voice` | Voice command mode |
 | `/clear` | Clear screen |
 | `/exit` | Exit NOVA |
+
+### 📱 Phone Remote Features (via /bt)
+- PIN-based unlock (default: 1234)
+- Lock / Sleep / Wake / Mute
+- Volume & Brightness control
+- Open/Close apps (single/double tap)
+- Clear temp files
+- Full AI chat with Groq
 """
         if RICH_AVAILABLE and console:
             console.print(Markdown(help_text))
@@ -1727,13 +2883,44 @@ class NovaCLI:
             return False
             
         res = self.nie.process_command(user_input)
+        intent = res.get('intent_name', 'UNKNOWN')
+        confidence = res.get('confidence', 0)
         
+
+        # MANUAL INTERCEPTION for critical commands
+        lower_input = user_input.lower()
+        if 'restart' in lower_input or 'gigathon restart' in lower_input:
+             res['intent_name'] = "RESTART_SYSTEM"
+             res['intent_id'] = 6
+             res['confidence'] = 1.0
+             intent = "RESTART_SYSTEM"
+             confidence = 1.0
+        elif 'shutdown' in lower_input or 'turn off' in lower_input or 'gigathon shutdown' in lower_input:
+             res['intent_name'] = "SHUTDOWN_SYSTEM"
+             res['intent_id'] = 5
+             res['confidence'] = 1.0
+             intent = "SHUTDOWN_SYSTEM"
+             confidence = 1.0
+        elif 'sleep' in lower_input or 'gigathon sleep' in lower_input:
+             res['intent_name'] = "SLEEP_SYSTEM"
+             res['intent_id'] = 7
+             res['confidence'] = 1.0
+             intent = "SLEEP_SYSTEM"
+             confidence = 1.0
+
         # We only take over if we are very confident and it's a known system intent
-        if res['confidence'] >= 0.75 and res['intent_name'] != "UNKNOWN":
+        if confidence >= 0.75 and intent != "UNKNOWN":
+            # Strict mode for SYSTEM_STATUS: user must actually say 'status' or 'info' or 'health'
+            # This prevents common words like "great" or "power" from triggering it
+            if intent == "SYSTEM_STATUS":
+                trigger_words = ['status', 'info', 'health', 'report', 'stats']
+                if not any(word in user_input.lower() for word in trigger_words):
+                    return False
+                    
             if RICH_AVAILABLE and console:
                 # Beautiful Neural Panel
                 title = f"[bold bright_cyan]🧠 Neural Interception[/]"
-                content = f"Detected Intent: [bold orange1]{res['intent_name']}[/]\nConfidence: [bold green]{res['confidence']*100:.2f}%[/]\n\nThis command is being handled by your local Neural Engine."
+                content = f"Detected Intent: [bold orange1]{intent}[/]\nConfidence: [bold green]{confidence*100:.2f}%[/]\n\nThis command is being handled by your local Neural Engine."
                 console.print(Panel(content, title=title, border_style="bright_cyan", padding=(1, 2)))
                 
                 # Manual Permission Gate for Nova CLI
@@ -1745,8 +2932,8 @@ class NovaCLI:
                     console.print("\n[bold red]🚫 Operation Aborted.[/]\n")
                     return True 
             else:
-                print(f"\n🧠 Thinking... {res['intent_name']} ({res['confidence']*100:.1f}%)")
-                if PermissionGate.ask_permission(res['intent_name'], res['confidence']):
+                print(f"\n🧠 Thinking... {intent} ({confidence*100:.1f}%)")
+                if PermissionGate.ask_permission(intent, confidence):
                     PermissionGate.execute_intent(res['intent_id'])
                     return True
                 return True
@@ -1755,6 +2942,7 @@ class NovaCLI:
 
     def run(self):
         """Main CLI loop."""
+        global VOICE_REPLY_ENABLED
         # Clear screen and print banner
         os.system('cls' if platform.system() == 'Windows' else 'clear')
         self.print_banner()
@@ -1825,37 +3013,726 @@ class NovaCLI:
                         os.system('cls' if platform.system() == 'Windows' else 'clear')
                         self.print_banner()
                     
+                    elif cmd == "/check":
+                        print("\n🔍 [NOVA DIAGNOSTICS]")
+                        g_stats = GroqChat.diagnostics()
+                        print(f"  • Groq API Key: {'✅ Loaded' if g_stats['has_key'] else '❌ Missing'}")
+                        if g_stats['has_key']:
+                            print(f"    (Preview: {g_stats['key_preview']})")
+                        print(f"  • Groq Library: {'✅ Installed' if g_stats['library_installed'] else '❌ Missing'}")
+                        print(f"  • Groq Ready:   {'✅ YES' if g_stats['available'] else '❌ NO (Restart Nova needed)'}")
+                        print(f"  • Agent Tools:  {'✅ Ready' if AGENT_AVAILABLE else '❌ Missing'}")
+                        print(f"  • .env Path:    {g_stats['env_path']}")
+                        print(f"  • NIE Active:   {'✅' if NIE_AVAILABLE else '❌'}")
+                        print(f"  • Voice/TTS:    {'✅' if VOICE_AVAILABLE else '❌'}")
+                        print(f"  • Voice Reply:  {'✅ ON' if VOICE_REPLY_ENABLED else '❌ OFF (Normal mode)'}\n")
+                    
                     elif cmd == "/bluetooth" or cmd == "/bt":
-                        self.start_bluetooth_server()
+                        # Multi-mode choice
+                        if BLE_MODE_AVAILABLE:
+                            print("\n  [cyan][BLUEOOTH MODE SELECTION][/]")
+                            print("  1. Classic Bluetooth (Android / Windows)")
+                            print("  2. BLE Mode (iPhone / Apple Friendly)")
+                            
+                            choice = input("\n  Select mode [1/2]: ").strip()
+                            if choice == '2':
+                                self.start_ble_server()
+                            else:
+                                self.start_bluetooth_server()
+                        else:
+                            self.start_bluetooth_server()
+
+                    elif cmd == "/ble":
+                        self.start_ble_server()
                     
                     elif cmd == "/agent":
                         self.start_agent_mode()
+                    
+                    elif cmd == "/voice":
+                        if SR_AVAILABLE:
+                            print("\n  🎤 Voice Mode Activated!")
+                            print("  Speak your command... (say 'exit' or 'stop' to deactivate)\n")
+                            if VOICE_AVAILABLE:
+                                VoiceControl.speak("Hello! Voice mode is now active. How can I help you?", force=True)
+                            
+                            voice_mode_active = True
+                            while voice_mode_active:
+                                voice_input = VoiceControl.listen(timeout=10)
+                                if voice_input:
+                                    if 'exit' in voice_input or 'stop' in voice_input or 'quit' in voice_input or 'deactivate' in voice_input:
+                                        print("  🔇 Voice mode deactivated.\n")
+                                        if VOICE_AVAILABLE:
+                                            VoiceControl.speak("Goodbye! Voice mode deactivated.", force=True)
+                                        voice_mode_active = False
+                                        break
+                                    
+                                    # Process the voice command right here
+                                    print(f"\n  📝 Processing: {voice_input}")
+                                    lower_voice = voice_input.lower().strip()
+                                    
+                                    # ===== CONVERSATIONAL RESPONSES (Human-like) =====
+                                    if lower_voice in ['hello', 'hi', 'hey', 'hello nova', 'hi nova', 'hey nova']:
+                                        response = "Hello! I'm Nova, your AI assistant. What can I do for you?"
+                                        print(f"  🗣️ {response}")
+                                        # No voice for simple greetings
+                                    
+                                    elif 'how are you' in lower_voice:
+                                        response = "I'm doing great, thank you for asking! I'm ready to help you with anything."
+                                        print(f"  🗣️ {response}")
+                                        if VOICE_AVAILABLE:
+                                            VoiceControl.speak(response, force=True)
+                                    
+                                    elif 'thank you' in lower_voice or 'thanks' in lower_voice:
+                                        response = "You're welcome! Happy to help."
+                                        print(f"  🗣️ {response}")
+                                        if VOICE_AVAILABLE:
+                                            VoiceControl.speak(response, force=True)
+                                    
+                                    elif 'what can you do' in lower_voice or 'help' in lower_voice:
+                                        response = "I can open apps, search Google, play YouTube videos, tell you the time, and much more. Just ask!"
+                                        print(f"  🗣️ {response}")
+                                        if VOICE_AVAILABLE:
+                                            VoiceControl.speak(response, force=True)
+                                    
+                                    # ===== ACTION COMMANDS =====
+                                    elif lower_voice in ['time', 'what time is it', "what's the time"]:
+                                        from datetime import datetime
+                                        current_time = datetime.now().strftime('%I:%M %p')
+                                        response = f"The current time is {current_time}"
+                                        print(f"  🕐 {response}")
+                                        if VOICE_AVAILABLE:
+                                            VoiceControl.speak(response, force=True)
+                                    
+                                    elif 'open' in lower_voice or 'launch' in lower_voice:
+                                        app = lower_voice.replace('open', '').replace('launch', '').strip()
+                                        response = f"Opening {app} for you"
+                                        print(f"  🚀 {response}...")
+                                        os.system(f'start {app}')
+                                        if VOICE_AVAILABLE:
+                                            VoiceControl.speak(response, force=True)
+                                    
+                                    elif 'close' in lower_voice:
+                                        app = lower_voice.replace('close', '').strip()
+                                        response = f"Closing {app}"
+                                        print(f"  ❌ {response}...")
+                                        os.system(f'taskkill /f /im {app}.exe 2>nul')
+                                        if VOICE_AVAILABLE:
+                                            VoiceControl.speak(response, force=True)
+                                    
+                                    elif 'play' in lower_voice:
+                                        query = lower_voice.replace('play', '').strip()
+                                        response = f"Playing {query} on YouTube for you"
+                                        print(f"  🎵 {response}...")
+                                        search_url = f"https://www.youtube.com/results?search_query={query.replace(' ', '+')}"
+                                        os.system(f'start "" "{search_url}"')
+                                        if VOICE_AVAILABLE:
+                                            VoiceControl.speak(response, force=True)
+                                    
+                                    elif 'google' in lower_voice or 'search' in lower_voice:
+                                        query = lower_voice.replace('google', '').replace('search', '').strip()
+                                        response = f"Searching for {query}"
+                                        print(f"  🔍 {response}...")
+                                        search_url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
+                                        os.system(f'start "" "{search_url}"')
+                                        if VOICE_AVAILABLE:
+                                            VoiceControl.speak(response, force=True)
+                                    
+                                    # ===== INTELLIGENT QUESTION ANSWERING (Siri-like) =====
+                                    elif any(q in lower_voice for q in ['what is', 'who is', 'tell me about', 'explain', 'define', 'what are', 'how does', 'why is']):
+                                        print("  🧠 Searching for intelligent answer...")
+                                        if VOICE_AVAILABLE:
+                                            VoiceControl.speak("Let me find that for you.", force=True)
+                                        WebIntelligence.answer_with_voice(voice_input, force=True)
+                                    
+                                    elif lower_voice.endswith('?'):
+                                        # Any question - use WebIntelligence
+                                        print("  🧠 Finding answer to your question...")
+                                        WebIntelligence.answer_with_voice(voice_input, force=True)
+                                    
+                                    else:
+                                        # Generic conversational response
+                                        response = f"I heard you say: {voice_input}. How can I help with that?"
+                                        print(f"  💬 {response}")
+                                        if VOICE_AVAILABLE:
+                                            VoiceControl.speak(response, force=True)
+                                    
+                                    print("\n  🎤 Listening for next command...\n")
+                        else:
+                            print("  ⚠️ Voice recognition not available.")
+                            print("  Install: pip install speechrecognition pyaudio\n")
+                    
+                    elif cmd == "/speak" or cmd == "/tts":
+                        if VOICE_AVAILABLE:
+                            VOICE_REPLY_ENABLED = not VOICE_REPLY_ENABLED
+                            status = "ON" if VOICE_REPLY_ENABLED else "OFF"
+                            print(f"  🔊 Text-to-Speech replies are now {status}")
+                            if VOICE_REPLY_ENABLED:
+                                VoiceControl.speak("Voice replies are now enabled.", force=True)
+                        else:
+                            print("  ⚠️ Text-to-Speech not available.")
+                            print("  Install: pip install pyttsx3\n")
+                    
+                    elif cmd == "/help":
+                        print("\n  📚 Nova Commands:")
+                        print("  /exit     - Exit Nova")
+                        print("  /clear    - Clear screen")
+                        print("  /voice    - Enable voice input mode")
+                        print("  /speak    - Test text-to-speech")
+                        print("  /web      - Start web server")
+                        print("  /agent    - Start agent mode")
+                        print("  /help     - Show this help\n")
                     
                     else:
                         print(f"  Unknown command: {cmd}")
                     
                     print()
                     continue
+                # 0. Quick System Commands (Bypass LLM for speed)
+                lower_input = user_input.lower().strip()
+                quick_handled = False
                 
-                # 1. Neural Interception (Local Brain)
+                # Exit commands - must be checked first!
+                if lower_input in ['exit', 'quit', 'bye', 'goodbye']:
+                    if RICH_AVAILABLE and console:
+                        console.print(f"\n  [cyan]Goodbye, sir. {DEVICE_NAME} will be waiting.[/]\n")
+                    else:
+                        print(f"\n  Goodbye, sir. {DEVICE_NAME} will be waiting.\n")
+                    break
+
+                # 0. Neural Interception (Local Brain) - Handle critical system intents first
                 if self._handle_neural_intent(user_input):
                     continue
+                
+                # ============= CHATBOT RESPONSES (Priority - handle conversational queries first) =============
+                # Check if NovaChatBot can handle this as a conversational query
+                # Short patterns need exact/word-boundary match, long patterns use substring
+                exact_match_patterns = ['hi', 'hey', 'bye', 'joke', 'thanks', 'thank you']
+                phrase_patterns = ['who are you', 'your name', 'how are you', 'what can you do', 
+                                   'tell me a joke', 'hello', 'goodbye', 'motivate', 'inspire', 
+                                   'who made you', 'who created you', 'how old are you', 
+                                   'do you love me', 'meaning of life', 'help me',
+                                   'good morning', 'good afternoon', 'good evening', 'good night',
+                                   'you are great', 'you are awesome', 'i love you', 'i am sad', 'cheer me up']
+                
+                # Check exact matches first (whole input = pattern)
+                is_exact_match = lower_input.strip() in exact_match_patterns
+                # Check phrase patterns (substring match for longer phrases)
+                is_phrase_match = any(p in lower_input for p in phrase_patterns)
+                
+                is_conversational = is_exact_match or is_phrase_match
+                
+                if is_conversational:
+                    # Let chatbot handle it
+                    response = NovaChatBot.get_response(user_input)
+                    print(f"\n🤖 Nova: {response}\n")
+                    # Skip voice for simple greetings
+                    simple_greetings = ['hello', 'hi', 'hey', 'bye', 'goodbye']
+                    if VOICE_AVAILABLE and lower_input.strip() not in simple_greetings:
+                        VoiceControl.speak(response[:200])
+                    continue
+                
+                # ============= QUESTION DETECTION (for factual questions - use Groq/WebIntelligence) =============
+                # Detect questions and use Groq AI (if available) or WebIntelligence
+                question_starters = ['what is', 'who is', 'what are', 'who are', 'how is', 'how does', 
+                                    'why is', 'why are', 'when is', 'when was', 'where is', 'where was',
+                                    'explain', 'define', 'tell me about', 'what does', 'how to', 'can you', 
+                                    'write', 'create', 'generate', 'show me', 'help with']
+                is_question = any(lower_input.startswith(q) for q in question_starters) or (lower_input.endswith('?') and len(lower_input) > 3)
+                
+                # If it's a question or a long sentence, prioritize Groq AI
+                is_complex = len(lower_input.split()) > 4 or is_question
+                
+                if is_complex and GROQ_AVAILABLE:
+                    print()
+                    if RICH_AVAILABLE and console:
+                        with console.status("[bold bright_cyan]  🤖 Thinking...", spinner="dots"):
+                            response = GroqChat.chat(user_input)
+                    else:
+                        print("  🤖 Thinking...")
+                        response = GroqChat.chat(user_input)
+                    
+                    print()
+                    if RICH_AVAILABLE and console:
+                        console.print(Panel(response, title="[bold bright_cyan]🤖 NOVA[/]", 
+                                            border_style="bright_cyan", padding=(1, 2)))
+                    else:
+                        print(f"🤖 NOVA: {response}")
+                    
+                    if VOICE_AVAILABLE:
+                        spoken = response[:250] + "..." if len(response) > 250 else response
+                        VoiceControl.speak(spoken)
+                    
+                    # Process any tool calls (new!)
+                    self._process_tool_calls(response)
+                    continue
 
-                # 2. Process with NOVA (LLM/Agent)
+                if is_question and not GROQ_AVAILABLE:
+                    print("🧠 Searching for intelligent answer...")
+                    if VOICE_AVAILABLE:
+                        VoiceControl.speak("Let me find that for you.")
+                    WebIntelligence.answer_with_voice(user_input)
+                    continue  # Skip to next input
+                
+                # ============= CLOSE APP COMMANDS (must be before NLP matching) =============
+                if lower_input.startswith('close '):
+                    app_to_close = lower_input.replace('close ', '').strip()
+                    process_map = {
+                        'chrome': 'chrome.exe',
+                        'edge': 'msedge.exe',
+                        'firefox': 'firefox.exe',
+                        'notepad': 'notepad.exe',
+                        'calculator': 'CalculatorApp.exe',
+                        'calc': 'CalculatorApp.exe',
+                        'word': 'WINWORD.EXE',
+                        'excel': 'EXCEL.EXE',
+                        'powerpoint': 'POWERPNT.EXE',
+                        'spotify': 'Spotify.exe',
+                        'discord': 'Discord.exe',
+                        'vscode': 'Code.exe',
+                        'vs code': 'Code.exe',
+                        'code': 'Code.exe',
+                        'explorer': 'explorer.exe',
+                        'teams': 'Teams.exe',
+                        'slack': 'slack.exe',
+                        'terminal': 'WindowsTerminal.exe',
+                        'cmd': 'cmd.exe',
+                        'powershell': 'powershell.exe',
+                        'phone link': 'PhoneExperienceHost.exe',
+                        'phonelink': 'PhoneExperienceHost.exe',
+                        'your phone': 'YourPhone.exe',
+                        'instagram': 'instagram.exe',
+                        'whatsapp': 'WhatsApp.exe',
+                        'telegram': 'Telegram.exe',
+                        'zoom': 'Zoom.exe',
+                        'skype': 'Skype.exe',
+                        'vlc': 'vlc.exe',
+                        'obs': 'obs64.exe',
+                        'steam': 'steam.exe',
+                        'task manager': 'Taskmgr.exe',
+                        'taskmgr': 'Taskmgr.exe',
+                        'snipping tool': 'SnippingTool.exe',
+                        'paint': 'mspaint.exe',
+                        'xbox': 'XboxApp.exe',
+                        'roblox': 'RobloxPlayerBeta.exe',
+                    }
+                    
+                    process_name = process_map.get(app_to_close.lower())
+                    if process_name:
+                        if RICH_AVAILABLE and console:
+                            console.print(f"\n[bold bright_cyan]❌ Closing {app_to_close.title()}...[/]")
+                        else:
+                            print(f"❌ Closing {app_to_close.title()}...")
+                        os.system(f'taskkill /f /im {process_name} 2>nul')
+                        print(f"✅ {app_to_close.title()} closed")
+                    else:
+                        # Try to close by process name directly
+                        print(f"❌ Closing {app_to_close}...")
+                        os.system(f'taskkill /f /im {app_to_close}.exe 2>nul')
+                        # Also try with spaces replaced by no space
+                        os.system(f'taskkill /f /im {app_to_close.replace(" ", "")}.exe 2>nul')
+                        print(f"✅ Attempted to close {app_to_close}")
+                    quick_handled = True
+                    continue  # Skip to next input
+                
+                # Understands natural language like "open vs code", "play youtube", etc.
+                
+                # Define keyword mappings: keywords -> (action, display_name)
+                APP_KEYWORDS = {
+                    # Desktop Apps
+                    ('chrome', 'google chrome'): ('start chrome', 'Chrome'),
+                    ('firefox',): ('start firefox', 'Firefox'),
+                    ('edge', 'microsoft edge'): ('start msedge', 'Edge'),
+                    ('notepad', 'text editor'): ('start notepad', 'Notepad'),
+                    ('vscode', 'vs code', 'visual studio code', 'code editor'): ('start code', 'VS Code'),
+                    ('calculator', 'calc'): ('start calc', 'Calculator'),
+                    ('explorer', 'file explorer', 'files', 'folders'): ('start explorer', 'File Explorer'),
+                    ('terminal', 'cmd', 'command prompt'): ('start cmd', 'Terminal'),
+                    ('powershell',): ('start powershell', 'PowerShell'),
+                    ('settings', 'windows settings'): ('start ms-settings:', 'Settings'),
+                    ('spotify', 'music'): ('start spotify:', 'Spotify'),
+                    ('discord',): ('start discord:', 'Discord'),
+                    ('word', 'microsoft word'): ('start winword', 'Word'),
+                    ('excel', 'microsoft excel'): ('start excel', 'Excel'),
+                    ('paint',): ('start mspaint', 'Paint'),
+                    ('phone link', 'phonelink', 'your phone'): ('start ms-phone:', 'Phone Link'),
+                    ('xbox',): ('start xbox:', 'Xbox'),
+                    ('store', 'microsoft store'): ('start ms-windows-store:', 'Microsoft Store'),
+                    ('snipping tool', 'snip'): ('start snippingtool', 'Snipping Tool'),
+                    ('task manager',): ('start taskmgr', 'Task Manager'),
+                    ('control panel',): ('start control', 'Control Panel'),
+                    
+                    # Social Media
+                    ('youtube', 'yt'): ('start https://youtube.com', 'YouTube'),
+                    ('twitter', 'x.com'): ('start https://twitter.com', 'Twitter'),
+                    ('instagram', 'insta'): ('start https://instagram.com', 'Instagram'),
+                    ('facebook', 'fb'): ('start https://facebook.com', 'Facebook'),
+                    ('linkedin',): ('start https://linkedin.com', 'LinkedIn'),
+                    ('whatsapp',): ('start https://web.whatsapp.com', 'WhatsApp'),
+                    ('reddit',): ('start https://reddit.com', 'Reddit'),
+                    ('tiktok',): ('start https://tiktok.com', 'TikTok'),
+                    ('twitch',): ('start https://twitch.tv', 'Twitch'),
+                    
+                    # AI Tools
+                    ('chatgpt', 'chat gpt', 'openai'): ('start https://chat.openai.com', 'ChatGPT'),
+                    ('claude', 'anthropic'): ('start https://claude.ai', 'Claude'),
+                    ('gemini', 'bard', 'google ai'): ('start https://gemini.google.com', 'Gemini'),
+                    ('perplexity',): ('start https://perplexity.ai', 'Perplexity'),
+                    ('copilot', 'bing ai'): ('start https://copilot.microsoft.com', 'Copilot'),
+                    ('huggingface', 'hugging face'): ('start https://huggingface.co', 'HuggingFace'),
+                    ('midjourney',): ('start https://midjourney.com', 'Midjourney'),
+                    
+                    # Productivity
+                    ('github',): ('start https://github.com', 'GitHub'),
+                    ('gmail', 'email', 'mail'): ('start https://mail.google.com', 'Gmail'),
+                    ('google drive', 'drive'): ('start https://drive.google.com', 'Google Drive'),
+                    ('notion',): ('start https://notion.so', 'Notion'),
+                    ('google', 'search'): ('start https://google.com', 'Google'),
+                    ('stackoverflow', 'stack overflow'): ('start https://stackoverflow.com', 'Stack Overflow'),
+                }
+                
+                # Check if input contains trigger words AND app keywords
+                # Skip if it's a "close" command - those are handled separately
+                trigger_words = ['open', 'launch', 'start', 'run', 'play', 'go to', 'show', 'bring up']
+                is_close_command = lower_input.startswith('close ')
+                has_trigger = any(trigger in lower_input for trigger in trigger_words) or lower_input.split()[0] if lower_input else False
+                
+                if not is_close_command and (has_trigger or len(lower_input.split()) <= 3):  # Short commands likely want to open something
+                    import re
+                    for keywords, (command, name) in APP_KEYWORDS.items():
+                        matched = False
+                        for kw in keywords:
+                            # Use word boundary to avoid matching 'yt' in 'python'
+                            # Stricter: must be a whole word match
+                            if re.search(rf'\b{re.escape(kw)}\b', lower_input):
+                                matched = True
+                                break
+                        
+                        if matched:
+                            # Verify it's not actually a complex sentence we should have handled earlier
+                            if len(lower_input.split()) > 5:
+                                # This is probably not a simple app launch
+                                continue
+                                
+                            if RICH_AVAILABLE and console:
+                                console.print(f"\n[bold bright_cyan]🚀 Opening {name}...[/]")
+                            else:
+                                print(f"🚀 Opening {name}...")
+                            os.system(command)
+                            if RICH_AVAILABLE and console:
+                                console.print(f"[green]✅ {name} opened[/]\n")
+                            else:
+                                print(f"✅ {name} opened")
+                            quick_handled = True
+                            break
+                
+                # ============= SYSTEM CONTROL COMMANDS =============
+                if not quick_handled:
+                    if lower_input in ['mute', 'unmute', 'silence', 'quiet']:
+                        if RICH_AVAILABLE and console:
+                            console.print("\n[bold bright_cyan]🔇 Muting system volume...[/]")
+                        result = SystemControl.set_volume(0)
+                        if RICH_AVAILABLE and console:
+                            console.print(f"[green]✅ {result}[/]\n")
+                        else:
+                            print(f"✅ {result}")
+                        quick_handled = True
+                    
+                    elif lower_input in ['volume up', 'louder', 'increase volume']:
+                        if RICH_AVAILABLE and console:
+                            console.print("\n[bold bright_cyan]🔊 Increasing volume...[/]")
+                        SystemControl.set_volume(75)
+                        if RICH_AVAILABLE and console:
+                            console.print("[green]✅ Volume set to 75%[/]\n")
+                        else:
+                            print("✅ Volume increased")
+                        quick_handled = True
+                    
+                    elif lower_input in ['volume down', 'quieter', 'decrease volume']:
+                        if RICH_AVAILABLE and console:
+                            console.print("\n[bold bright_cyan]🔉 Decreasing volume...[/]")
+                        SystemControl.set_volume(25)
+                        if RICH_AVAILABLE and console:
+                            console.print("[green]✅ Volume set to 25%[/]\n")
+                        else:
+                            print("✅ Volume decreased")
+                        quick_handled = True
+                    
+                    elif lower_input in ['lock', 'lock screen', 'lock computer', 'lock pc']:
+                        if RICH_AVAILABLE and console:
+                            console.print("\n[bold bright_cyan]🔒 Locking screen...[/]")
+                        SystemControl.lock_screen()
+                        quick_handled = True
+                    
+                    # Brightness control
+                    elif 'brightness' in lower_input:
+                        if 'up' in lower_input or 'increase' in lower_input or '+' in lower_input:
+                            if RICH_AVAILABLE and console:
+                                console.print("\n[bold bright_cyan]☀️ Increasing brightness...[/]")
+                            else:
+                                print("☀️ Increasing brightness...")
+                            # Use PowerShell to increase brightness
+                            os.system('powershell "(Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightnessMethods).WmiSetBrightness(1,80)"')
+                            print("✅ Brightness increased to 80%")
+                            quick_handled = True
+                        elif 'down' in lower_input or 'decrease' in lower_input or '-' in lower_input:
+                            if RICH_AVAILABLE and console:
+                                console.print("\n[bold bright_cyan]🌙 Decreasing brightness...[/]")
+                            else:
+                                print("🌙 Decreasing brightness...")
+                            os.system('powershell "(Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightnessMethods).WmiSetBrightness(1,30)"')
+                            print("✅ Brightness decreased to 30%")
+                            quick_handled = True
+                        elif 'max' in lower_input or '100' in lower_input:
+                            os.system('powershell "(Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightnessMethods).WmiSetBrightness(1,100)"')
+                            print("✅ Brightness set to 100%")
+                            quick_handled = True
+                        elif 'min' in lower_input or '0' in lower_input:
+                            os.system('powershell "(Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightnessMethods).WmiSetBrightness(1,10)"')
+                            print("✅ Brightness set to 10%")
+                            quick_handled = True
+                    
+                    # ============= ASK COMMAND (Siri-like intelligent answers) =============
+                    elif lower_input.startswith('ask '):
+                        question = lower_input.replace('ask ', '').strip()
+                        if question:
+                            print("🧠 Searching for intelligent answer...")
+                            if VOICE_AVAILABLE:
+                                VoiceControl.speak("Let me find that for you.")
+                            WebIntelligence.answer_with_voice(question)
+                            quick_handled = True
+                    
+                    # ============= QUESTION DETECTION (Siri-like) =============
+                    elif any(lower_input.startswith(q) for q in ['what is ', 'who is ', 'what are ', 'how does ', 'why is ', 'explain ', 'define ', 'tell me about ']):
+                        print("🧠 Searching for intelligent answer...")
+                        WebIntelligence.answer_with_voice(user_input)
+                        quick_handled = True
+                    
+                    elif lower_input.endswith('?') and len(lower_input) > 10:
+                        # Any question ending with ? 
+                        print("🧠 Finding answer to your question...")
+                        WebIntelligence.answer_with_voice(user_input)
+                        quick_handled = True
+                    
+                    # ============= CLOSE APP COMMANDS (from Jarvis) =============
+                    elif lower_input.startswith('close '):
+                        app_to_close = lower_input.replace('close ', '').strip()
+                        process_map = {
+                            'chrome': 'chrome.exe',
+                            'edge': 'msedge.exe',
+                            'firefox': 'firefox.exe',
+                            'notepad': 'notepad.exe',
+                            'calculator': 'CalculatorApp.exe',
+                            'calc': 'CalculatorApp.exe',
+                            'word': 'WINWORD.EXE',
+                            'excel': 'EXCEL.EXE',
+                            'powerpoint': 'POWERPNT.EXE',
+                            'spotify': 'Spotify.exe',
+                            'discord': 'Discord.exe',
+                            'vscode': 'Code.exe',
+                            'vs code': 'Code.exe',
+                            'code': 'Code.exe',
+                            'explorer': 'explorer.exe',
+                            'teams': 'Teams.exe',
+                            'slack': 'slack.exe',
+                        }
+                        
+                        process_name = process_map.get(app_to_close.lower())
+                        if process_name:
+                            if RICH_AVAILABLE and console:
+                                console.print(f"\n[bold bright_cyan]❌ Closing {app_to_close.title()}...[/]")
+                            else:
+                                print(f"❌ Closing {app_to_close.title()}...")
+                            os.system(f'taskkill /f /im {process_name} 2>nul')
+                            print(f"✅ {app_to_close.title()} closed")
+                        else:
+                            # Try to close by process name directly
+                            os.system(f'taskkill /f /im {app_to_close}.exe 2>nul')
+                            print(f"✅ Attempted to close {app_to_close}")
+                        quick_handled = True
+                    
+                    # ============= TIME/DATE COMMANDS (from Jarvis) =============
+                    elif lower_input in ['time', 'what time is it', 'current time', 'what is the time']:
+                        from datetime import datetime
+                        current_time = datetime.now().strftime('%I:%M %p')
+                        if RICH_AVAILABLE and console:
+                            console.print(f"\n[bold bright_cyan]🕐 Current time: [yellow]{current_time}[/][/]\n")
+                        else:
+                            print(f"🕐 Current time: {current_time}")
+                        quick_handled = True
+                    
+                    elif lower_input in ['date', 'what date is it', 'current date', 'what is the date', "what's the date"]:
+                        from datetime import datetime
+                        current_date = datetime.now().strftime('%A, %B %d, %Y')
+                        if RICH_AVAILABLE and console:
+                            console.print(f"\n[bold bright_cyan]📅 Today is: [yellow]{current_date}[/][/]\n")
+                        else:
+                            print(f"📅 Today is: {current_date}")
+                        quick_handled = True
+                    
+                    # ============= YOUTUBE PLAYBACK (from Jarvis) =============
+                    elif lower_input.startswith('play '):
+                        query = lower_input.replace('play ', '').strip()
+                        if query:
+                            if RICH_AVAILABLE and console:
+                                console.print(f"\n[bold bright_cyan]🎵 Playing '{query}' on YouTube...[/]")
+                            else:
+                                print(f"🎵 Playing '{query}' on YouTube...")
+                            # Try pywhatkit first, fall back to browser
+                            try:
+                                import pywhatkit
+                                pywhatkit.playonyt(query)
+                            except ImportError:
+                                # Fallback: open YouTube search
+                                search_url = f"https://www.youtube.com/results?search_query={query.replace(' ', '+')}"
+                                os.system(f'start "" "{search_url}"')
+                            print(f"✅ Now playing: {query}")
+                            quick_handled = True
+                    
+                    # ============= GOOGLE SEARCH (from jarvis-ai-assistant) =============
+                    elif lower_input.startswith('google search ') or lower_input.startswith('search google '):
+                        query = lower_input.replace('google search ', '').replace('search google ', '').strip()
+                        if query:
+                            if RICH_AVAILABLE and console:
+                                console.print(f"\n[bold bright_cyan]🔍 Searching Google for '{query}'...[/]")
+                            else:
+                                print(f"🔍 Searching Google for '{query}'...")
+                            search_url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
+                            os.system(f'start "" "{search_url}"')
+                            print(f"✅ Google search opened")
+                            quick_handled = True
+                    
+                    # ============= YOUTUBE SEARCH (from jarvis-ai-assistant) =============
+                    elif lower_input.startswith('youtube search ') or lower_input.startswith('search youtube '):
+                        query = lower_input.replace('youtube search ', '').replace('search youtube ', '').strip()
+                        if query:
+                            if RICH_AVAILABLE and console:
+                                console.print(f"\n[bold bright_cyan]📺 Searching YouTube for '{query}'...[/]")
+                            else:
+                                print(f"📺 Searching YouTube for '{query}'...")
+                            search_url = f"https://www.youtube.com/results?search_query={query.replace(' ', '+')}"
+                            os.system(f'start "" "{search_url}"')
+                            print(f"✅ YouTube search opened")
+                            quick_handled = True
+                    
+                    # ============= WIKIPEDIA SEARCH =============
+                    elif lower_input.startswith('wikipedia ') or lower_input.startswith('wiki '):
+                        query = lower_input.replace('wikipedia ', '').replace('wiki ', '').strip()
+                        if query:
+                            if RICH_AVAILABLE and console:
+                                console.print(f"\n[bold bright_cyan]📚 Searching Wikipedia for '{query}'...[/]")
+                            else:
+                                print(f"📚 Searching Wikipedia for '{query}'...")
+                            search_url = f"https://en.wikipedia.org/wiki/{query.replace(' ', '_')}"
+                            os.system(f'start "" "{search_url}"')
+                            print(f"✅ Wikipedia opened")
+                            quick_handled = True
+
+                    elif lower_input in ['scan apps', 'rescan apps', 'find apps', 'refresh apps']:
+                        if RICH_AVAILABLE and console:
+                            console.print("\n[bold bright_cyan]🔍 Scanning for installed apps...[/]")
+                        else:
+                            print("🔍 Scanning for installed apps...")
+                        if APP_FINDER:
+                            count = APP_FINDER.rescan()
+                            if RICH_AVAILABLE and console:
+                                console.print(f"[green]✅ Found {count} apps![/]\n")
+                            else:
+                                print(f"✅ Found {count} apps!")
+                        quick_handled = True
+                    
+                    # List Apps command
+                    elif lower_input in ['list apps', 'show apps', 'my apps']:
+                        if APP_FINDER:
+                            count = APP_FINDER.get_app_count()
+                            print(f"\n📱 {count} apps cached. Type 'scan apps' to refresh.\n")
+                            # Show first 20 apps
+                            apps_list = list(APP_FINDER.apps.keys())[:20]
+                            for app in apps_list:
+                                print(f"  • {app.title()}")
+                            if count > 20:
+                                print(f"  ... and {count - 20} more")
+                            print()
+                        quick_handled = True
+                
+                # ============= SMART APP FINDER (Fallback for any app) =============
+                if not quick_handled and APP_FINDER:
+                    # Check if input looks like an app launch request
+                    trigger_words = ['open', 'launch', 'start', 'run']
+                    has_trigger = any(lower_input.startswith(trigger + ' ') for trigger in trigger_words)
+                    app_query = lower_input
+                    
+                    # Remove trigger words to get just the app name
+                    for trigger in trigger_words:
+                        if app_query.startswith(trigger + ' '):
+                            app_query = app_query[len(trigger) + 1:].strip()
+                            break
+                    
+                    # Only try to launch if:
+                    # 1. Has explicit trigger word (open X, launch Y)
+                    # 2. OR single word with 2-20 chars (likely app name)
+                    is_likely_app_name = len(app_query.split()) == 1 and 2 <= len(app_query) <= 20
+                    
+                    if has_trigger or is_likely_app_name:
+                        # Check if app exists in cache before trying to launch
+                        app_name, app_path = APP_FINDER.find_app(app_query)
+                        if app_path:
+                            success, message = APP_FINDER.launch_app(app_query)
+                            if success:
+                                if RICH_AVAILABLE and console:
+                                    console.print(f"\n[bold bright_cyan]🚀 {message}[/]\n")
+                                else:
+                                    print(f"🚀 {message}")
+                                quick_handled = True
+
+                if quick_handled:
+                    continue
+                
+                # 1. Local Chatbot (For short expressions & greetings)
+                # Catching these BEFORE neural interception prevents "great" from being "SYSTEM_STATUS"
+                if len(user_input.split()) <= 3:
+                    local_response = NovaChatBot.get_response(user_input)
+                    if local_response and "I'm not sure I understand" not in local_response:
+                        print()
+                        if RICH_AVAILABLE and console:
+                            console.print(Panel(local_response, title="[bold bright_cyan]🤖 NOVA[/]", 
+                                                border_style="bright_cyan", padding=(1, 2)))
+                        else:
+                            print(f"🤖 NOVA: {local_response}")
+                        
+                        # Handle voice if enabled
+                        if VOICE_AVAILABLE and VOICE_REPLY_ENABLED:
+                             VoiceControl.speak(local_response)
+                             
+                        print()
+                        continue
+
+                # 2. Process with fallback (if nothing else caught it)
                 print()
                 if RICH_AVAILABLE and console:
-                    with console.status("[bold bright_cyan]  Processing...", spinner="dots"):
-                        response = self.nova.process(user_input)
+                    with console.status("[bold bright_cyan]  🤖 Thinking...", spinner="dots"):
+                        response = GroqChat.chat(user_input)
                 else:
-                    print("  Processing...")
-                    response = self.nova.process(user_input)
+                    print("  🤖 Thinking...")
+                    response = GroqChat.chat(user_input)
                 
                 print()
                 if RICH_AVAILABLE and console:
-                    console.print(Panel(Markdown(response), title="[bold bright_cyan]NOVA[/]", 
+                    console.print(Panel(response, title="[bold bright_cyan]🤖 NOVA[/]", 
                                         border_style="bright_cyan", padding=(1, 2)))
                 else:
-                    print(f"  NOVA: {response}")
+                    print(f"🤖 NOVA: {response}")
+                
+                # ============= TOOL CALL PARSER (Detect and execute file actions) =============
+                self._process_tool_calls(response)
+                
+                # Speak the response
+                if VOICE_AVAILABLE and VOICE_REPLY_ENABLED and response and "Error:" not in response:
+                    spoken = response[:250] + "..." if len(response) > 250 else response
+                    # Clean markdown for speech
+                    spoken = spoken.replace('**', '').replace('*', '').replace('`', '')
+                    spoken = spoken.replace('#', '').replace('\n', ' ')
+                    VoiceControl.speak(spoken)
+                
                 print()
                 
             except KeyboardInterrupt:

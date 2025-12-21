@@ -1,0 +1,1077 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>Nova Remote</title>
+    <style>
+        /* RESET & TOKENS */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        :root {
+            --bg: #020510;
+            --accent: #00f5ff;
+            --purple: #a855f7;
+            --success: #3dffb0;
+            --warning: #ffcc4d;
+            --danger: #ff4d7f;
+            --text: #ffffff;
+            --text2: rgba(255, 255, 255, 0.6);
+            --border: rgba(255, 255, 255, 0.12);
+            --radius-lg: 18px;
+            --radius-md: 14px;
+            --radius-pill: 999px;
+            --spacing-2: 8px;
+            --spacing-3: 12px;
+            --spacing-4: 16px;
+            --spacing-5: 20px;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            min-height: 100vh;
+            color: var(--text);
+            background:
+                radial-gradient(circle at 0% 0%, rgba(0, 255, 178, 0.06), transparent 55%),
+                radial-gradient(circle at 100% 0%, rgba(80, 120, 255, 0.1), transparent 60%),
+                linear-gradient(135deg, var(--bg), #050819);
+            padding: var(--spacing-4);
+            padding-top: calc(env(safe-area-inset-top, 16px) + 8px);
+            padding-bottom: calc(env(safe-area-inset-bottom, 16px) + 72px);
+        }
+
+        /* LAYOUT WRAPPER TO LIMIT WIDTH ON LARGE SCREENS */
+        .shell {
+            max-width: 480px;
+            margin: 0 auto;
+        }
+
+        /* HEADER */
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: var(--spacing-4);
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-2);
+        }
+
+        .logo {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: conic-gradient(from 180deg, var(--accent), var(--purple), var(--accent));
+            padding: 2px;
+            box-shadow: 0 0 20px rgba(0, 245, 255, 0.3);
+        }
+
+        .logo-inner {
+            width: 100%;
+            height: 100%;
+            border-radius: inherit;
+            background:
+                radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.9), transparent 45%),
+                radial-gradient(circle at 80% 80%, rgba(0, 0, 0, 0.9), transparent 55%);
+        }
+
+        h1 {
+            font-size: 22px;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            background: linear-gradient(120deg, #fff, var(--accent));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .subtitle {
+            font-size: 10px;
+            letter-spacing: 0.15em;
+            color: var(--text2);
+            text-transform: uppercase;
+        }
+
+        .pill {
+            padding: 6px 12px;
+            border-radius: var(--radius-pill);
+            border: 1px solid rgba(0, 245, 255, 0.4);
+            font-size: 10px;
+            color: var(--accent);
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            white-space: nowrap;
+        }
+
+        .dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--success);
+            box-shadow: 0 0 8px rgba(61, 255, 176, 0.8);
+        }
+
+        /* GENERIC CARD */
+        .card {
+            border-radius: var(--radius-lg);
+            padding: var(--spacing-3);
+            margin-bottom: var(--spacing-3);
+            background: linear-gradient(135deg, rgba(9, 14, 40, 0.95), rgba(15, 32, 68, 0.95));
+            border: 1px solid rgba(0, 245, 255, 0.18);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+            position: relative;
+        }
+
+        .card-title {
+            position: absolute;
+            right: var(--spacing-3);
+            top: 6px;
+            font-size: 8px;
+            letter-spacing: 0.12em;
+            color: rgba(255, 255, 255, 0.32);
+            text-transform: uppercase;
+        }
+
+        /* STATS */
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: var(--spacing-2);
+        }
+
+        .stat {
+            text-align: center;
+        }
+
+        .stat-label {
+            font-size: 9px;
+            color: var(--text2);
+            margin-bottom: 2px;
+            text-transform: uppercase;
+        }
+
+        .stat-value {
+            font-size: 18px;
+            font-weight: 600;
+            line-height: 1.1;
+            margin-bottom: 2px;
+        }
+
+        .stat-unit {
+            font-size: 9px;
+            color: var(--text2);
+            margin-left: 1px;
+        }
+
+        .meter {
+            margin-top: 2px;
+            height: 3px;
+            border-radius: var(--radius-pill);
+            background: rgba(255, 255, 255, 0.08);
+            overflow: hidden;
+        }
+
+        .meter-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent), var(--purple));
+            transform-origin: left;
+            transform: scaleX(0);
+            transition: transform 180ms ease-out;
+        }
+
+        /* SECTION LABELS */
+        .section {
+            font-size: 10px;
+            color: var(--text2);
+            text-transform: uppercase;
+            letter-spacing: 0.18em;
+            margin: var(--spacing-4) 0 var(--spacing-2);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .section::after {
+            content: "";
+            flex: 1;
+            height: 1px;
+            background: linear-gradient(90deg,
+                    rgba(148, 163, 184, 0.3),
+                    transparent);
+        }
+
+        /* GRID (CONTROLS & APPS) */
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: var(--spacing-2);
+        }
+
+        .btn {
+            border-radius: var(--radius-md);
+            padding: 10px 4px;
+            background: linear-gradient(145deg, rgba(17, 24, 56, 0.95), rgba(8, 14, 40, 0.98));
+            border: 1px solid var(--border);
+            text-align: center;
+            cursor: pointer;
+            transition: transform 80ms ease-out, border-color 120ms ease-out,
+                box-shadow 120ms ease-out, background 120ms ease-out;
+        }
+
+        .btn:active {
+            transform: scale(0.96);
+        }
+
+        .btn .icon {
+            font-size: 20px;
+            display: block;
+            margin-bottom: 4px;
+        }
+
+        .btn .label {
+            font-size: 9px;
+            letter-spacing: 0.06em;
+            color: var(--text2);
+            text-transform: uppercase;
+        }
+
+        .btn.danger {
+            border-color: rgba(255, 77, 127, 0.7);
+        }
+
+        .btn.accent {
+            border-color: rgba(0, 245, 255, 0.6);
+            box-shadow: 0 6px 16px rgba(0, 245, 255, 0.24);
+        }
+
+        /* CHAT */
+        .chat {
+            border-radius: var(--radius-lg);
+            padding: var(--spacing-3);
+            background: rgba(8, 11, 30, 0.96);
+            border: 1px solid rgba(148, 163, 184, 0.35);
+            height: 360px;
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacing-2);
+        }
+
+        .chat-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 4px;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+        }
+
+        .badge {
+            padding: 4px 10px;
+            border-radius: var(--radius-pill);
+            border: 1px solid rgba(0, 245, 255, 0.4);
+            font-size: 9px;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+        }
+
+        .chat-subtitle {
+            font-size: 9px;
+            color: var(--text2);
+        }
+
+        .msgs {
+            flex: 1;
+            overflow-y: auto;
+            padding: 4px 0;
+        }
+
+        .msg {
+            margin-bottom: 6px;
+        }
+
+        .bubble {
+            padding: 8px 12px;
+            border-radius: 14px;
+            font-size: 13px;
+            line-height: 1.4;
+            border: 1px solid rgba(148, 163, 184, 0.3);
+            max-width: 90%;
+            display: inline-block;
+        }
+
+        .msg.nova .bubble {
+            border-radius: 14px 14px 14px 4px;
+            background: rgba(0, 245, 255, 0.08);
+        }
+
+        .msg.user {
+            text-align: right;
+        }
+
+        .msg.user .bubble {
+            border-radius: 14px 14px 4px 14px;
+            background: linear-gradient(135deg, var(--accent), var(--purple));
+            color: #000;
+            border: none;
+        }
+
+        .spinner {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            border: 2px solid rgba(148, 163, 184, 0.3);
+            border-top-color: var(--accent);
+            animation: spin 0.7s linear infinite;
+            display: inline-block;
+        }
+
+        .input-row {
+            display: flex;
+            gap: var(--spacing-2);
+            margin-top: 2px;
+        }
+
+        .input-row input {
+            flex: 1;
+            border-radius: var(--radius-pill);
+            border: 1px solid rgba(148, 163, 184, 0.5);
+            background: rgba(15, 23, 42, 0.96);
+            color: var(--text);
+            font-size: 14px;
+            padding: 10px 14px;
+            outline: none;
+        }
+
+        .input-row input:focus {
+            border-color: var(--accent);
+        }
+
+        .send {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            border: none;
+            background: conic-gradient(from 180deg,
+                    var(--accent),
+                    var(--purple),
+                    var(--accent));
+            color: #000;
+            font-size: 18px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        /* APPS */
+        .apps {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: var(--spacing-2);
+        }
+
+        .app {
+            border-radius: var(--radius-md);
+            padding: 10px 4px;
+            border: 1px solid rgba(148, 163, 184, 0.4);
+            background: rgba(15, 23, 42, 0.96);
+            text-align: center;
+            cursor: pointer;
+            transition: transform 80ms ease-out, border-color 120ms ease-out,
+                box-shadow 120ms ease-out;
+        }
+
+        .app:active {
+            transform: scale(0.96);
+        }
+
+        .app .icon {
+            font-size: 22px;
+            display: block;
+            margin-bottom: 4px;
+        }
+
+        .app .label {
+            font-size: 9px;
+            color: var(--text2);
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+        }
+
+        .app.active {
+            border-color: var(--accent);
+            box-shadow: 0 6px 16px rgba(0, 245, 255, 0.3);
+        }
+
+        /* PAGES */
+        .page {
+            display: none;
+        }
+
+        .page.active {
+            display: block;
+        }
+
+        /* NAV BAR */
+        .nav-shell {
+            max-width: 480px;
+            margin: 0 auto;
+        }
+
+        .nav {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(5, 8, 25, 0.98);
+            border-top: 1px solid rgba(0, 245, 255, 0.16);
+            padding: 6px 0;
+            padding-bottom: calc(env(safe-area-inset-bottom, 8px) + 6px);
+            display: flex;
+            justify-content: center;
+            z-index: 100;
+        }
+
+        .nav-inner {
+            display: flex;
+            justify-content: space-between;
+            gap: var(--spacing-3);
+            width: 100%;
+            max-width: 480px;
+            padding: 0 var(--spacing-4);
+        }
+
+        .nav-btn {
+            flex: 1;
+            text-align: center;
+            padding: 6px 0;
+            border-radius: 10px;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .nav-btn .icon {
+            font-size: 20px;
+        }
+
+        .nav-btn .label {
+            font-size: 9px;
+            color: var(--text2);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .nav-btn.active {
+            background: rgba(0, 245, 255, 0.12);
+        }
+
+        .nav-btn.active .label {
+            color: var(--accent);
+        }
+
+        /* PIN OVERLAY */
+        #pin-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.92);
+            backdrop-filter: blur(20px);
+            padding: var(--spacing-4);
+        }
+
+        #pin-overlay h2 {
+            font-size: 16px;
+            color: var(--accent);
+            letter-spacing: 0.15em;
+            margin-top: 8px;
+            text-transform: uppercase;
+        }
+
+        #pin-display {
+            font-size: 28px;
+            letter-spacing: 0.4em;
+            color: var(--accent);
+            margin: 20px 0;
+        }
+
+        #pin-pad {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-top: 4px;
+        }
+
+        .pin-key {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            border: 1px solid rgba(148, 163, 184, 0.6);
+            background: rgba(15, 23, 42, 0.96);
+            color: var(--text);
+            font-size: 22px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: transform 80ms ease-out, background 100ms ease-out,
+                border-color 100ms ease-out;
+        }
+
+        .pin-key:active {
+            transform: scale(0.96);
+        }
+
+        .pin-key.confirm {
+            background: var(--success);
+            color: #000;
+            border-color: var(--success);
+        }
+
+        .pin-key.back {
+            background: var(--danger);
+            border-color: var(--danger);
+        }
+
+        .pin-cancel {
+            margin-top: 20px;
+            padding: 8px 30px;
+            border-radius: var(--radius-pill);
+            border: 1px solid rgba(148, 163, 184, 0.5);
+            background: transparent;
+            color: var(--text2);
+            cursor: pointer;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* SMALL SCREEN TWEAKS */
+        @media (max-width: 360px) {
+            .stats {
+                gap: 6px;
+            }
+
+            .btn .label,
+            .app .label {
+                font-size: 8px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="shell">
+        <header class="header">
+            <div class="brand">
+                <div class="logo">
+                    <div class="logo-inner"></div>
+                </div>
+                <div>
+                    <h1>NOVA</h1>
+                    <div class="subtitle">Remote Control</div>
+                </div>
+            </div>
+            <div class="pill">
+                <span class="dot"></span>
+                <span>{device_name}</span>
+            </div>
+        </header>
+
+        <!-- HOME -->
+        <main id="home" class="page active">
+            <div class="card">
+                <span class="card-title">System Diagnostics</span>
+                <div class="stats">
+                    <div class="stat">
+                        <div class="stat-label">CPU</div>
+                        <div class="stat-value" id="cpu">
+                            0<span class="stat-unit">%</span>
+                        </div>
+                        <div class="meter">
+                            <div class="meter-fill" id="cpuM"></div>
+                        </div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-label">RAM</div>
+                        <div class="stat-value" id="mem">
+                            0<span class="stat-unit">%</span>
+                        </div>
+                        <div class="meter">
+                            <div class="meter-fill" id="memM"></div>
+                        </div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-label">BAT</div>
+                        <div class="stat-value" id="bat">
+                            --<span class="stat-unit">%</span>
+                        </div>
+                        <div class="meter">
+                            <div class="meter-fill" id="batM"></div>
+                        </div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-label">DISK</div>
+                        <div class="stat-value" id="disk">
+                            0<span class="stat-unit">%</span>
+                        </div>
+                        <div class="meter">
+                            <div class="meter-fill" id="diskM"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">Controls</div>
+
+            <div class="grid">
+                <div class="btn" onclick="cmd('lock')">
+                    <span class="icon">🔒</span>
+                    <span class="label">Lock</span>
+                </div>
+                <div class="btn accent" onclick="showPin()">
+                    <span class="icon">🔓</span>
+                    <span class="label">Unlock</span>
+                </div>
+                <div class="btn" onclick="cmd('sleep')">
+                    <span class="icon">😴</span>
+                    <span class="label">Sleep</span>
+                </div>
+                <div class="btn" onclick="cmd('mute')">
+                    <span class="icon">🔇</span>
+                    <span class="label">Mute</span>
+                </div>
+            </div>
+
+            <div class="grid" style="margin-top: 8px">
+                <div class="btn" onclick="cmd('volume up')">
+                    <span class="icon">🔊</span>
+                    <span class="label">Vol+</span>
+                </div>
+                <div class="btn" onclick="cmd('volume down')">
+                    <span class="icon">🔉</span>
+                    <span class="label">Vol-</span>
+                </div>
+                <div class="btn" onclick="cmd('brightness up')">
+                    <span class="icon">☀️</span>
+                    <span class="label">Bright+</span>
+                </div>
+                <div class="btn" onclick="cmd('brightness down')">
+                    <span class="icon">🌙</span>
+                    <span class="label">Bright-</span>
+                </div>
+            </div>
+
+            <div class="grid" style="margin-top: 8px">
+                <div class="btn" onclick="cmd('wake')">
+                    <span class="icon">⏰</span>
+                    <span class="label">Wake</span>
+                </div>
+                <div class="btn" onclick="cmd('clear temp')">
+                    <span class="icon">🧹</span>
+                    <span class="label">Clean</span>
+                </div>
+                <div class="btn" onclick="confirm('Restart?') && cmd('restart')">
+                    <span class="icon">🔄</span>
+                    <span class="label">Restart</span>
+                </div>
+                <div class="btn danger" onclick="confirm('Shutdown?') && cmd('shutdown')">
+                    <span class="icon">⏻</span>
+                    <span class="label">Power</span>
+                </div>
+            </div>
+        </main>
+
+        <!-- CHAT -->
+        <section id="chat" class="page">
+            <div class="chat">
+                <div class="chat-head">
+                    <div class="badge">Nova · Online</div>
+                    <div class="chat-subtitle">AI Chat</div>
+                </div>
+                <div class="msgs" id="msgs">
+                    <div class="msg nova">
+                        <div class="bubble">Hello! How can I help? 🚀</div>
+                    </div>
+                </div>
+                <div class="input-row">
+                    <input id="inp" placeholder="Ask Nova..." autocomplete="off" />
+                    <button class="send" onclick="send()">➤</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- APPS -->
+        <section id="apps" class="page">
+            <div class="section">App Launcher</div>
+            <div class="apps">
+                <div class="app" onclick="tap(this,'chrome')">
+                    <span class="icon">🌐</span>
+                    <span class="label">Chrome</span>
+                </div>
+                <div class="app" onclick="tap(this,'spotify')">
+                    <span class="icon">🎵</span>
+                    <span class="label">Spotify</span>
+                </div>
+                <div class="app" onclick="tap(this,'discord')">
+                    <span class="icon">💬</span>
+                    <span class="label">Discord</span>
+                </div>
+                <div class="app" onclick="tap(this,'code')">
+                    <span class="icon">💻</span>
+                    <span class="label">VS Code</span>
+                </div>
+                <div class="app" onclick="tap(this,'explorer')">
+                    <span class="icon">📁</span>
+                    <span class="label">Files</span>
+                </div>
+                <div class="app" onclick="tap(this,'notepad')">
+                    <span class="icon">📝</span>
+                    <span class="label">Notepad</span>
+                </div>
+                <div class="app" onclick="tap(this,'settings')">
+                    <span class="icon">⚙️</span>
+                    <span class="label">Settings</span>
+                </div>
+                <div class="app" onclick="tap(this,'calc')">
+                    <span class="icon">🔢</span>
+                    <span class="label">Calc</span>
+                </div>
+                <div class="app" onclick="tap(this,'whatsapp')">
+                    <span class="icon">📱</span>
+                    <span class="label">WhatsApp</span>
+                </div>
+                <div class="app" onclick="tap(this,'youtube')">
+                    <span class="icon">▶️</span>
+                    <span class="label">YouTube</span>
+                </div>
+                <div class="app" onclick="tap(this,'teams')">
+                    <span class="icon">👥</span>
+                    <span class="label">Teams</span>
+                </div>
+                <div class="app" onclick="tap(this,'outlook')">
+                    <span class="icon">📧</span>
+                    <span class="label">Outlook</span>
+                </div>
+            </div>
+            <p style="
+          text-align: center;
+          margin-top: 12px;
+          font-size: 10px;
+          color: var(--text2);
+        ">
+                Tap = Open · Double-tap = Close
+            </p>
+        </section>
+
+        <!-- SETTINGS -->
+        <section id="set" class="page">
+            <div class="section">Settings</div>
+
+            <div class="card">
+                <p style="font-size: 13px; margin-bottom: 6px">
+                    🔐 <b>Unlock PIN</b>
+                </p>
+                <p style="font-size: 11px; color: var(--text2)">Default: 1234</p>
+            </div>
+
+            <div class="card">
+                <p style="font-size: 13px; margin-bottom: 6px">
+                    📊 <b>System</b>
+                </p>
+                <p style="font-size: 11px; color: var(--text2)">
+                    Device: {device_name}<br />
+                    Nova BLE v2.0
+                </p>
+            </div>
+        </section>
+    </div>
+
+    <!-- NAV -->
+    <nav class="nav">
+        <div class="nav-inner nav-shell">
+            <div class="nav-btn active" onclick="go('home',this)">
+                <div class="icon">🏠</div>
+                <div class="label">Home</div>
+            </div>
+            <div class="nav-btn" onclick="go('chat',this)">
+                <div class="icon">💬</div>
+                <div class="label">Chat</div>
+            </div>
+            <div class="nav-btn" onclick="go('apps',this)">
+                <div class="icon">📱</div>
+                <div class="label">Apps</div>
+            </div>
+            <div class="nav-btn" onclick="go('set',this)">
+                <div class="icon">⚙️</div>
+                <div class="label">Settings</div>
+            </div>
+        </div>
+    </nav>
+
+    <script>
+        const msgs = document.getElementById("msgs"),
+            inp = document.getElementById("inp"),
+            taps = {};
+
+        function go(p, el) {
+            document
+                .querySelectorAll(".page")
+                .forEach((x) => x.classList.remove("active"));
+            document.getElementById(p).classList.add("active");
+            document
+                .querySelectorAll(".nav-btn")
+                .forEach((x) => x.classList.remove("active"));
+            el.classList.add("active");
+        }
+
+        function tap(el, app) {
+            const now = Date.now();
+            const last = taps[app] || 0;
+            if (now - last < 300) {
+                el.classList.remove("active");
+                cmd("close " + app);
+                taps[app] = 0;
+            } else {
+                el.classList.add("active");
+                cmd("open " + app);
+                taps[app] = now;
+            }
+        }
+
+        function add(text, cls) {
+            const m = document.createElement("div");
+            m.className = "msg " + cls;
+            m.innerHTML = '<div class="bubble">' + text + "</div>";
+            msgs.appendChild(m);
+            msgs.scrollTop = msgs.scrollHeight;
+        }
+
+        function load() {
+            const m = document.createElement("div");
+            m.className = "msg nova";
+            m.id = "ld";
+            m.innerHTML =
+                '<div class="bubble"><span class="spinner"></span></div>';
+            msgs.appendChild(m);
+            msgs.scrollTop = msgs.scrollHeight;
+        }
+
+        function unload() {
+            const e = document.getElementById("ld");
+            if (e) e.remove();
+        }
+
+        async function send() {
+            const c = inp.value.trim();
+            if (!c) return;
+            add(c, "user");
+            inp.value = "";
+            load();
+            try {
+                const r = await fetch("/send", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ command: c }),
+                });
+                const d = await r.json();
+                unload();
+                add(d.response || "Done.", "nova");
+            } catch (e) {
+                unload();
+                add("Error.", "nova");
+            }
+        }
+
+        async function cmd(c) {
+            try {
+                await fetch("/send", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ command: c }),
+                });
+            } catch (e) { }
+        }
+
+        let pin = "";
+
+        function showPin() {
+            const o = document.createElement("div");
+            o.id = "pin-overlay";
+            o.innerHTML =
+                '<div style="font-size:36px">🔐</div>' +
+                "<h2>Enter PIN</h2>" +
+                '<div id="pin-display">____</div>' +
+                '<div id="pin-pad">' +
+                [1, 2, 3, 4, 5, 6, 7, 8, 9, "⌫", 0, "✓"]
+                    .map((n) => {
+                        const cls =
+                            n === "⌫"
+                                ? " back"
+                                : n === "✓"
+                                    ? " confirm"
+                                    : "";
+                        const handler =
+                            n === "⌫"
+                                ? "pinBack()"
+                                : n === "✓"
+                                    ? "pinOk()"
+                                    : "pinIn('" + n + "')";
+                        return (
+                            '<button class="pin-key' +
+                            cls +
+                            '" onclick="' +
+                            handler +
+                            '">' +
+                            n +
+                            "</button>"
+                        );
+                    })
+                    .join("") +
+                "</div>" +
+                '<button class="pin-cancel" onclick="pinClose()">Cancel</button>';
+            document.body.appendChild(o);
+            pin = "";
+        }
+
+        function pinDisp() {
+            const d = document.getElementById("pin-display");
+            if (d) {
+                let s = "";
+                for (let i = 0; i < 4; i++) {
+                    s += i < pin.length ? "●" : "_";
+                }
+                d.textContent = s;
+            }
+        }
+
+        function pinIn(n) {
+            if (pin.length < 4) {
+                pin += n;
+                pinDisp();
+                if (pin.length === 4) setTimeout(pinOk, 150);
+            }
+        }
+
+        function pinBack() {
+            pin = pin.slice(0, -1);
+            pinDisp();
+        }
+
+        async function pinOk() {
+            const d = document.getElementById("pin-display");
+            try {
+                const r = await fetch("/send", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ command: "pin_unlock:" + pin }),
+                });
+                const data = await r.json();
+                if (data.response && data.response.toLowerCase().includes("unlocked")) {
+                    d.style.color = "var(--success)";
+                    d.textContent = "✓✓✓✓";
+                    setTimeout(pinClose, 400);
+                } else {
+                    d.style.color = "var(--danger)";
+                    d.textContent = "✗✗✗✗";
+                    setTimeout(() => {
+                        pin = "";
+                        d.style.color = "var(--accent)";
+                        pinDisp();
+                    }, 400);
+                }
+            } catch (e) { }
+        }
+
+        function pinClose() {
+            const o = document.getElementById("pin-overlay");
+            if (o) o.remove();
+            pin = "";
+        }
+
+        async function stat() {
+            try {
+                const r = await fetch("/status");
+                const d = await r.json();
+                const c = d.cpu || 0;
+                const m = d.memory || 0;
+                const b = d.battery ?? 100;
+                const k = d.disk || 0;
+
+                document.getElementById("cpu").innerHTML =
+                    c + '<span class="stat-unit">%</span>';
+                document.getElementById("mem").innerHTML =
+                    m + '<span class="stat-unit">%</span>';
+                document.getElementById("bat").innerHTML =
+                    b +
+                    '<span class="stat-unit">%</span>' +
+                    (d.charging ? "⚡" : "");
+                document.getElementById("disk").innerHTML =
+                    k + '<span class="stat-unit">%</span>';
+
+                document.getElementById("cpu").style.color =
+                    c < 50
+                        ? "var(--success)"
+                        : c < 80
+                            ? "var(--warning)"
+                            : "var(--danger)";
+                document.getElementById("mem").style.color =
+                    m < 60
+                        ? "var(--success)"
+                        : m < 85
+                            ? "var(--warning)"
+                            : "var(--danger)";
+                document.getElementById("bat").style.color =
+                    b < 20
+                        ? "var(--danger)"
+                        : b < 50
+                            ? "var(--warning)"
+                            : "var(--success)";
+                document.getElementById("disk").style.color =
+                    k < 70
+                        ? "var(--success)"
+                        : k < 90
+                            ? "var(--warning)"
+                            : "var(--danger)";
+
+                document.getElementById("cpuM").style.transform =
+                    "scaleX(" + c / 100 + ")";
+                document.getElementById("memM").style.transform =
+                    "scaleX(" + m / 100 + ")";
+                document.getElementById("batM").style.transform =
+                    "scaleX(" + b / 100 + ")";
+                document.getElementById("diskM").style.transform =
+                    "scaleX(" + k / 100 + ")";
+            } catch (e) { }
+        }
+
+        inp.addEventListener("keypress", (e) => {
+            if (e.key === "Enter") send();
+        });
+
+        stat();
+        setInterval(stat, 5000);
+    </script>
+</body>
+
+</html>
