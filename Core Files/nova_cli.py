@@ -37,45 +37,18 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import urllib.parse
 
 try:
-    from nova_system.nova_bluetooth import BluetoothServer, list_com_ports
+    from nova_bluetooth import BluetoothServer, list_com_ports
     BLUETOOTH_AVAILABLE = True
 except ImportError:
     BLUETOOTH_AVAILABLE = False
 
 # BLE (Apple Friendly) support
-# BLE (Apple Friendly) support
 try:
-    from nova_system.nova_ble import BleServer
+    from nova_ble import BleServer
     BLE_MODE_AVAILABLE = True
 except Exception as e:
     BLE_MODE_AVAILABLE = False
     print(f"BLE import error: {e}")
-
-# Automation Engines (UCE, AWCL, HASE, etc.)
-# Automation Engines
-try:
-    from nova_system.nova_automation import (
-        UnifiedControlEngine, UCE, HASE, AWCL_APP, AWCL_WEB,
-        SYSTEM, ORCHESTRATOR, CONTROLLER, get_automation_status, quick_command
-    )
-    AUTOMATION_AVAILABLE = True
-except ImportError:
-    AUTOMATION_AVAILABLE = False
-    UCE = None
-
-# Study Engine
-try:
-    import nova_system.nova_study as nova_study
-    STUDY_AVAILABLE = True
-except ImportError:
-    STUDY_AVAILABLE = False
-
-# Project Management
-try:
-    import nova_system.nova_pm as nova_pm
-    PM_AVAILABLE = True
-except ImportError:
-    PM_AVAILABLE = False
 
 # MCP Agent support (Enhanced - inspired by Gemini CLI)
 try:
@@ -140,21 +113,19 @@ except ImportError:
     PSUTIL_AVAILABLE = False
 
 # Voice Control (from Jarvis-AI)
-# Voice Control (from Jarvis-AI)
-# USING POWERSHELL TTS FALLBACK to avoid pyttsx3/comtypes crashes
 TTS_ENGINE = None
-VOICE_AVAILABLE = True # Enable voice via PowerShell
-
-def powershell_tts(text):
-    """Speak text using Windows PowerShell (No Python libraries needed)."""
-    try:
-        # Escape quotes for PowerShell
-        safe_text = text.replace('"', '').replace("'", "")
-        cmd = f'powershell -Command "Add-Type –AssemblyName System.Speech; (New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak(\'{safe_text}\');"'
-        subprocess.Popen(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return True
-    except:
-        return False
+VOICE_AVAILABLE = False
+try:
+    import pyttsx3
+    TTS_ENGINE = pyttsx3.init()
+    voices = TTS_ENGINE.getProperty('voices')
+    # Try to use a female voice if available
+    if len(voices) > 1:
+        TTS_ENGINE.setProperty('voice', voices[1].id)
+    TTS_ENGINE.setProperty('rate', 180)  # Speed of speech
+    VOICE_AVAILABLE = True
+except:
+    VOICE_AVAILABLE = False
 
 # Voice reply toggle (Default to False as requested)
 VOICE_REPLY_ENABLED = False
@@ -180,17 +151,6 @@ try:
     NIE_AVAILABLE = True
 except Exception as e:
     NIE_AVAILABLE = False
-
-# Nova Brain (LLM) & Agent (moved to nova_system)
-try:
-    from nova_system.nova_ollama import NovaBrain
-    from nova_system.nova_agent import NovaAutonomousAgent
-    OLLAMA_AVAILABLE = True
-except ImportError as e:
-    OLLAMA_AVAILABLE = False
-    NovaBrain = None
-    NovaAutonomousAgent = None
-    # print(f"Brain/Agent Import Error: {e}")
 
 # ============= SMART APP DISCOVERY SYSTEM =============
 class AppFinder:
@@ -358,18 +318,18 @@ class VoiceControl:
     @staticmethod
     def speak(text, force=False):
         """Convert text to speech."""
-        # Print for visibility
-        if not force: # Don't double print if it's already being printed by caller
-             pass
-        
-        if VOICE_AVAILABLE:
+        if VOICE_AVAILABLE and TTS_ENGINE:
+            # Only speak if voice reply is enabled globally OR forced (like in /voice mode)
             if VOICE_REPLY_ENABLED or force:
                 try:
-                    # Use PowerShell TTS (Robust)
-                    powershell_tts(text)
+                    TTS_ENGINE.say(text)
+                    TTS_ENGINE.runAndWait()
                     return True
                 except:
                     pass
+        # Fallback/Log: just print with emoji
+        if not force: # Don't double print if it's already being printed by caller
+             pass
         return False
     
     @staticmethod
@@ -2451,82 +2411,6 @@ class NovaWebHandler(BaseHTTPRequestHandler):
 </body>
 </html>'''
 
-# ============= SYSTEM MONITOR (Background Analysis) =============
-class SystemMonitor:
-    """
-    Runs in the background to monitor system health and initiate conversation.
-    """
-    def __init__(self):
-        self.running = False
-        self.thread = None
-        self.last_cpu_warning = 0
-        self.voice_active = False
-
-    def start(self, voice_enabled=False):
-        if self.running: return
-        self.running = True
-        self.voice_active = voice_enabled
-        self.thread = threading.Thread(target=self._monitor_loop)
-        self.thread.daemon = True
-        self.thread.start()
-        print(f"\n[MONITOR] Background analysis started. (Voice: {'ON' if voice_enabled else 'OFF'})")
-
-    def stop(self):
-        self.running = False
-        if self.thread:
-            self.thread.join(timeout=1.0)
-        print("\n[MONITOR] Background analysis stopped.")
-
-    def _monitor_loop(self):
-        import time
-        import random
-        
-        while self.running:
-            try:
-                if PSUTIL_AVAILABLE:
-                    # check CPU
-                    cpu = psutil.cpu_percent(interval=1)
-                    mem = psutil.virtual_memory().percent
-                    battery = psutil.sensors_battery()
-                    
-                    # CPU Warning
-                    if cpu > 85 and (time.time() - self.last_cpu_warning > 300): # 5 min cooldown
-                        msg = f"Warning: High CPU usage detected at {cpu}%."
-                        self._notify(msg)
-                        self.last_cpu_warning = time.time()
-                        
-                    # Battery Warning
-                    if battery and not battery.power_plugged and battery.percent < 20:
-                        self._notify(f"Battery is low ({battery.percent}%). Please plug in.")
-                        time.sleep(300) # Wait 5 mins before nagging again
-
-                # Random Proactive Chat (Small chance every min)
-                if random.random() < 0.05: # 5% chance every loop iteration
-                    greetings = [
-                        "I'm keeping an eye on the system for you.",
-                        "Everything looks stable on my end.",
-                        "Don't forget to take a break if you've been working long!",
-                        "Systems are running within normal parameters.",
-                        "I'm here in the background if you need anything."
-                    ]
-                    self._notify(random.choice(greetings))
-                    
-                time.sleep(30) # Check every 30 seconds
-                
-            except Exception as e:
-                print(f"[MONITOR ERROR] {e}")
-                time.sleep(60)
-
-    def _notify(self, message):
-        """Send notification locally or via Voice"""
-        # Print clearly without messing up input line too much
-        sys.stdout.write(f"\n\n🤖 [NOVA] {message}\nNOVA> ")
-        sys.stdout.flush()
-        
-        if self.voice_active and VOICE_AVAILABLE:
-            VoiceControl.speak(message)
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # CLI INTERFACE
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -2539,31 +2423,6 @@ class NovaCLI:
         self.ble_server = None
         self.nie = NeuralIntentEngine() if NIE_AVAILABLE else None
         
-        # Initialize Nova Brain (Ollama)
-        # Initialize Nova Brain (Ollama)
-        if OLLAMA_AVAILABLE and NovaBrain:
-            self.brain = NovaBrain()
-            self.agent = NovaAutonomousAgent(self.brain) if NovaAutonomousAgent else None
-        else:
-            self.brain = None
-            self.agent = None
-        
-        
-    def _detect_emotion(self, text):
-        """
-        Simulate emotion detection from text (placeholder for webcam model).
-        """
-        text = text.lower()
-        if any(w in text for w in ['happy', 'great', 'awesome', 'love', 'good']):
-            return "Happy"
-        if any(w in text for w in ['sad', 'bad', 'sorry', 'depressed']):
-            return "Sad"
-        if any(w in text for w in ['angry', 'hate', 'mad', 'furious']):
-            return "Angry"
-        if any(w in text for w in ['confused', 'help', 'what', 'why', 'how']):
-            return "Confused"
-        return "Neutral"
-
     def print_banner(self):
         """Print the NOVA banner - responsive to terminal width."""
         width = get_terminal_width()
@@ -2637,20 +2496,17 @@ class NovaCLI:
         """Parse and execute tool calls from AI response."""
         import re
         
-        # Define workspace if not available
-        workspace = os.path.join(os.path.dirname(os.path.abspath(__file__)), "workspace")
-        os.makedirs(workspace, exist_ok=True)
-        
         # Detect CREATE_FILE
         create_matches = re.findall(r'<CREATE_FILE filename="([^"]+)">(.*?)</CREATE_FILE>', response, re.DOTALL)
         for filename, code in create_matches:
             print(f"📄 [TOOL] Creating file: {filename}...")
             try:
-                # Use direct file operations instead of agent tools
-                filepath = os.path.join(workspace, filename)
-                with open(filepath, 'w', encoding='utf-8') as f:
-                    f.write(code.strip())
-                print(f"✅ [TOOL] File created at: {filepath}")
+                tool = CreatePythonFileTool()
+                result = tool.execute(code=code.strip(), filename=filename)
+                if result["success"]:
+                    print(f"✅ [TOOL] File created at: {result['filepath']}")
+                else:
+                    print(f"❌ [TOOL] Error creating file: {result['error']}")
             except Exception as e:
                 print(f"❌ [TOOL] File creation failed: {e}")
 
@@ -2659,27 +2515,18 @@ class NovaCLI:
         for filename in run_matches:
             print(f"▶ [TOOL] Running file: {filename}...")
             try:
-                # Find the full path
-                filepath = os.path.join(workspace, filename)
+                # Find the full path (usually in workspace)
+                filepath = os.path.join(AGENT_WORKSPACE, filename)
                 if not os.path.exists(filepath):
-                    filepath = filename  # Try absolute path
-                
-                if os.path.exists(filepath):
-                    # Run the Python file
-                    result = subprocess.run(
-                        [sys.executable, filepath],
-                        capture_output=True,
-                        text=True,
-                        timeout=30
-                    )
-                    if result.returncode == 0:
-                        print(f"✅ [TOOL] Execution output:\n{result.stdout}")
-                    else:
-                        print(f"❌ [TOOL] Execution error:\n{result.stderr}")
+                    # Try absolute if filename was absolute
+                    filepath = filename
+                    
+                tool = ExecutePythonFileTool()
+                result = tool.execute(filepath=filepath)
+                if result["success"]:
+                    print(f"✅ [TOOL] Execution output:\n{result['output']}")
                 else:
-                    print(f"❌ [TOOL] File not found: {filepath}")
-            except subprocess.TimeoutExpired:
-                print(f"❌ [TOOL] Execution timed out")
+                    print(f"❌ [TOOL] Execution error: {result['errors'] or result['error']}")
             except Exception as e:
                 print(f"❌ [TOOL] Execution failed: {e}")
 
@@ -2717,22 +2564,22 @@ class NovaCLI:
             except Exception as e:
                 print(f"❌ [TOOL] Tree failed: {e}")
 
-        # Detect FETCH_FILE (Legacy - Disabled to prevent conflict with Agent/Ollama)
-        # fetch_matches = re.findall(r'<FETCH_FILE prefix="([^"]+)"\s*/>', response)
-        # for prefix in fetch_matches:
-        #     print(f"⚡ [TOOL] Fetching file with prefix '{prefix}'...")
-        #     try:
-        #         from agent.tools import FileTrieIndexerTool
-        #         tool = FileTrieIndexerTool()
-        #         result = tool.execute(prefix=prefix)
-        #         if result["success"]:
-        #             print(f"✅ [TOOL] Found {result['count']} match(es):")
-        #             for m in result["matches"]:
-        #                 print(f"  • {os.path.relpath(m, os.getcwd())}")
-        #         else:
-        #             print(f"❌ [TOOL] Fetch failed (Check if index is built)")
-        #     except Exception as e:
-        #         print(f"❌ [TOOL] Fetch failed: {e}")
+        # Detect FETCH_FILE
+        fetch_matches = re.findall(r'<FETCH_FILE prefix="([^"]+)"\s*/>', response)
+        for prefix in fetch_matches:
+            print(f"⚡ [TOOL] Fetching file with prefix '{prefix}'...")
+            try:
+                from agent.tools import FileTrieIndexerTool
+                tool = FileTrieIndexerTool()
+                result = tool.execute(prefix=prefix)
+                if result["success"]:
+                    print(f"✅ [TOOL] Found {result['count']} match(es):")
+                    for m in result["matches"]:
+                        print(f"  • {os.path.relpath(m, os.getcwd())}")
+                else:
+                    print(f"❌ [TOOL] Fetch failed (Check if index is built)")
+            except Exception as e:
+                print(f"❌ [TOOL] Fetch failed: {e}")
 
         # Detect SAVE_MEMORY
         memory_matches = re.findall(r'<SAVE_MEMORY key="([^"]+)" value="([^"]+)"\s*/>', response)
@@ -2946,122 +2793,6 @@ class NovaCLI:
             except Exception as e:
                 print(f"  Agent error: {e}\n")
     
-    def start_automation_mode(self):
-        """Start the Automation Engine mode with all automation modules."""
-        if not AUTOMATION_AVAILABLE:
-            if RICH_AVAILABLE and console:
-                console.print("\n  [red][X] Automation Engines not available![/]")
-                console.print("  [dim]Make sure nova_automation.py exists[/]\n")
-            else:
-                print("\n  Automation Engines not available!")
-            return
-        
-        if RICH_AVAILABLE and console:
-            console.print("\n" + "="*60)
-            console.print("  [bold bright_cyan]🤖 NOVA AUTOMATION ENGINE (UCE)[/]")
-            console.print("="*60)
-            
-            # Get and display status
-            status = get_automation_status()
-            console.print(f"\n  [cyan]Engine:[/] {status['name']} v{status['version']}")
-            console.print("\n  [cyan]Available Modules:[/]")
-            for engine, available in status['engines'].items():
-                icon = "✅" if available else "❌"
-                console.print(f"    {icon} {engine}")
-            
-            console.print("\n  [yellow]Commands:[/]")
-            console.print("    open <app>      - Open application")
-            console.print("    close <app>     - Close application")
-            console.print("    go to <url>     - Open URL")
-            console.print("    search <query>  - Search Google")
-            console.print("    play <query>    - Play on YouTube")
-            console.print("    volume <0-100>  - Set volume")
-            console.print("    brightness <0-100> - Set brightness")
-            console.print("    mute / unmute   - Toggle mute")
-            console.print("    lock / sleep    - Lock or sleep system")
-            console.print("    screenshot      - Take screenshot")
-            console.print("    click           - Mouse click")
-            console.print("    type <text>     - Type text")
-            console.print("    status          - System status")
-            console.print("    exit            - Exit automation mode")
-            console.print("="*60 + "\n")
-        else:
-            print("\n" + "="*60)
-            print("  NOVA AUTOMATION ENGINE (UCE)")
-            print("="*60)
-            print("  Type 'help' for commands, 'exit' to quit\n")
-        
-        while True:
-            try:
-                if RICH_AVAILABLE and console:
-                    console.print("[bold magenta]AUTO>[/] ", end="")
-                else:
-                    print("AUTO> ", end="")
-                
-                user_input = input().strip()
-                
-                if not user_input:
-                    continue
-                
-                lower_input = user_input.lower()
-                
-                if lower_input in ['exit', 'quit', 'back']:
-                    if RICH_AVAILABLE and console:
-                        console.print("\n  [cyan]Exiting automation mode...[/]\n")
-                    else:
-                        print("\n  Exiting automation mode...\n")
-                    break
-                
-                if lower_input == 'help':
-                    console.print("""
-  [cyan]Available Commands:[/]
-  open <app>          - Open application
-  close <app>         - Close application
-  go to <url>         - Open URL
-  search <query>      - Search Google
-  play <query>        - Play on YouTube
-  volume <0-100>      - Set volume
-  brightness <0-100>  - Set brightness
-  mute / unmute       - Toggle mute
-  lock                - Lock screen
-  sleep               - Sleep system
-  screenshot          - Take screenshot
-  click               - Mouse click
-  type <text>         - Type text
-  status              - System status
-  clear temp          - Clear temp files
-  exit                - Exit automation mode
-                    """)
-                    continue
-                
-                # Execute automation command
-                success, result = quick_command(user_input)
-                
-                if RICH_AVAILABLE and console:
-                    if success:
-                        if isinstance(result, dict):
-                            console.print(f"\n  [green]✅ Success[/]")
-                            for key, value in result.items():
-                                if key != 'memory':  # Skip large memory dict
-                                    console.print(f"    [cyan]{key}:[/] {value}")
-                        else:
-                            console.print(f"\n  [green]✅ {result}[/]")
-                    else:
-                        console.print(f"\n  [red]❌ {result}[/]")
-                else:
-                    if success:
-                        print(f"\n  ✅ {result}")
-                    else:
-                        print(f"\n  ❌ {result}")
-                
-                print()
-                
-            except KeyboardInterrupt:
-                print("\n")
-                break
-            except Exception as e:
-                print(f"  Automation error: {e}\n")
-    
     def print_help(self):
         help_text = """
 ## NOVA Commands
@@ -3092,19 +2823,8 @@ class NovaCLI:
 | `/web` | Start web server for phone access |
 | `/agent` | MCP Agent (code generation) |
 | `/voice` | Voice command mode |
-| `/auto` | 🤖 Automation Engine (UCE) |
-| `/study` | 📚 Study & Research Engine |
-| `/pm` | 🚀 Project Manager |
 | `/clear` | Clear screen |
 | `/exit` | Exit NOVA |
-
-### 🤖 Automation Engines (via /auto)
-- **UCE** - Unified Control Engine (central orchestrator)
-- **AWCL** - Application & Web Control Layer
-- **HASE** - Human-Action Simulation Engine
-- **System Interaction Engine** - Volume, brightness, power
-- **Desktop & Web Orchestrator** - Workflow automation
-- **Universal Automation Controller** - Natural language commands
 
 ### 📱 Phone Remote Features (via /bt)
 - PIN-based unlock (default: 1234)
@@ -3280,31 +3000,6 @@ class NovaCLI:
                     elif cmd == "/help":
                         self.print_help()
                     
-                    elif cmd == "/voice":
-                        if SR_AVAILABLE:
-                            if RICH_AVAILABLE and console:
-                                console.print("\n[bold cyan]🎤 Voice Mode Activated![/]")
-                                console.print("Speak your command... (say 'exit' or 'stop' to deactivate)\n")
-                            else:
-                                print("\n  🎤 Voice Mode Activated!")
-                                print("  Speak your command... (say 'exit' or 'stop' to deactivate)\n")
-                                
-                            if VOICE_AVAILABLE:
-                                VoiceControl.speak("Voice mode active.", force=True)
-                            
-                            # Simple loop for voice to keeping context
-                            while True:
-                                v_input = VoiceControl.listen(timeout=8)
-                                if not v_input: break
-                                if 'exit' in v_input or 'stop' in v_input:
-                                    print("Voice mode deactivated.")
-                                    break
-                                # Feed back into main processor
-                                self._process_input(v_input)
-
-                        else:
-                             print("Voice recognition not available.")
-                    
                     elif cmd == "/status":
                         self.print_status()
                     
@@ -3320,38 +3015,17 @@ class NovaCLI:
                     
                     elif cmd == "/check":
                         print("\n🔍 [NOVA DIAGNOSTICS]")
-                        
-                        # Check Automations
-                        print(f"  • Automation:   {'✅ UCE Ready' if AUTOMATION_AVAILABLE else '❌ Missing'}")
-                        
-                        # Check Brain
-                        if OLLAMA_AVAILABLE and self.brain:
-                             print(f"  • Nova Brain:   {'✅ Online' if self.brain.available else '❌ Offline (Ollama)'}")
-                        else:
-                             print(f"  • Nova Brain:   ❌ Missing")
-
-                        # Check Agent
-                        print(f"  • Auto Agent:   {'✅ Ready' if self.agent else '❌ Missing'}")
-
-                        # Check Voice
-                        print(f"  • Voice Input:  {'✅ Ready' if SR_AVAILABLE else '❌ Missing'}")
-                        print(f"  • Voice Output: {'✅ Ready' if VOICE_AVAILABLE else '❌ Missing'}")
-                        
-                        # Check Web
-                        print(f"  • Web Server:   {'✅ Ready' if WEB_AVAILABLE else '❌ Missing'}")
-
+                        g_stats = GroqChat.diagnostics()
+                        print(f"  • Groq API Key: {'✅ Loaded' if g_stats['has_key'] else '❌ Missing'}")
+                        if g_stats['has_key']:
+                            print(f"    (Preview: {g_stats['key_preview']})")
+                        print(f"  • Groq Library: {'✅ Installed' if g_stats['library_installed'] else '❌ Missing'}")
+                        print(f"  • Groq Ready:   {'✅ YES' if g_stats['available'] else '❌ NO (Restart Nova needed)'}")
+                        print(f"  • Agent Tools:  {'✅ Ready' if AGENT_AVAILABLE else '❌ Missing'}")
+                        print(f"  • .env Path:    {g_stats['env_path']}")
                         print(f"  • NIE Active:   {'✅' if NIE_AVAILABLE else '❌'}")
-                        print("-" * 30)
                         print(f"  • Voice/TTS:    {'✅' if VOICE_AVAILABLE else '❌'}")
-                        print(f"  • Voice Reply:  {'✅ ON' if VOICE_REPLY_ENABLED else '❌ OFF (Normal mode)'}")
-                        print(f"  • Automation:   {'✅ UCE Ready' if AUTOMATION_AVAILABLE else '❌ Missing'}")
-                        if AUTOMATION_AVAILABLE:
-                            auto_status = get_automation_status()
-                            for eng, avail in auto_status['engines'].items():
-                                print(f"    - {eng}: {'✅' if avail else '❌'}")
-                        print(f"  • Study Engine: {'✅ Ready' if STUDY_AVAILABLE else '❌ Missing'}")
-                        print(f"  • Project Mgr:  {'✅ Ready' if PM_AVAILABLE else '❌ Missing'}")
-                        print()
+                        print(f"  • Voice Reply:  {'✅ ON' if VOICE_REPLY_ENABLED else '❌ OFF (Normal mode)'}\n")
                     
                     elif cmd == "/bluetooth" or cmd == "/bt":
                         # Multi-mode choice
@@ -3373,28 +3047,6 @@ class NovaCLI:
                     
                     elif cmd == "/agent":
                         self.start_agent_mode()
-                        
-                    elif cmd == "/monitor":
-                        if self.monitor.running:
-                             self.monitor.stop()
-                        else:
-                             # Auto-enable voice if available for monitoring
-                             self.monitor.start(voice_enabled=VOICE_AVAILABLE)
-                             
-                    elif cmd == "/auto" or cmd == "/automation":
-                        self.start_automation_mode()
-                    
-                    elif cmd == "/study":
-                        if STUDY_AVAILABLE:
-                            nova_study.start_study_mode()
-                        else:
-                            print("Study Engine not available. Check nova_study.py")
-                            
-                    elif cmd == "/pm" or cmd == "/project":
-                        if PM_AVAILABLE:
-                            nova_pm.start_pm_mode()
-                        else:
-                            print("Project Manager not available. Check nova_pm.py")
                     
                     elif cmd == "/voice":
                         if SR_AVAILABLE:
@@ -3548,9 +3200,7 @@ class NovaCLI:
                     break
 
                 # 0. Neural Interception (Local Brain) - Handle critical system intents first
-                # Skip for questions/conversation to prevent false positives (like "how i am..." -> LOCK_SYSTEM)
-                is_question_start = any(lower_input.startswith(q) for q in ['how', 'what', 'who', 'why', 'when', 'where', 'can you', 'do you', 'are you'])
-                if not is_question_start and self._handle_neural_intent(user_input):
+                if self._handle_neural_intent(user_input):
                     continue
                 
                 # ============= CHATBOT RESPONSES (Priority - handle conversational queries first) =============
@@ -3589,45 +3239,10 @@ class NovaCLI:
                                     'write', 'create', 'generate', 'show me', 'help with']
                 is_question = any(lower_input.startswith(q) for q in question_starters) or (lower_input.endswith('?') and len(lower_input) > 3)
                 
-                # ============= AGENT MODE FOR SELF-IMPROVEMENT =============
-                # Route these to the Autonomous Agent with self-programming capabilities
-                agent_keywords = ['upgrade yourself', 'train yourself', 'program yourself', 'modify yourself',
-                                 'improve yourself', 'learn to', 'teach yourself', 'add a tool', 'create a module',
-                                 'add capability', 'expand your', 'enhance yourself', 'evolve']
-                is_agent_task = any(kw in lower_input for kw in agent_keywords)
-                
-                if is_agent_task and self.agent:
-                    print()
-                    current_emotion = self._detect_emotion(user_input)
-                    result = self.agent.run_goal(user_input, emotion=current_emotion)
-                    
-                    if result:
-                        if RICH_AVAILABLE and console:
-                            console.print(Panel(str(result), title="[bold green]✅ Agent Result[/]", 
-                                                border_style="green", padding=(1, 2)))
-                        else:
-                            print(f"\n✅ Agent Result: {result}\n")
-                    continue
-                
-                # If it's a question or a long sentence, prioritize Groq AI (or Agent if available)
+                # If it's a question or a long sentence, prioritize Groq AI
                 is_complex = len(lower_input.split()) > 4 or is_question
                 
-                # Use Agent for complex tasks if available
-                if is_complex and self.agent:
-                    print()
-                    current_emotion = self._detect_emotion(user_input)
-                    result = self.agent.run_goal(user_input, emotion=current_emotion)
-                    
-                    if result:
-                        if RICH_AVAILABLE and console:
-                            console.print(Panel(str(result), title="[bold bright_cyan]🤖 NOVA[/]", 
-                                                border_style="bright_cyan", padding=(1, 2)))
-                        else:
-                            print(f"🤖 NOVA: {result}")
-                    continue
-                
-                # Fallback to GroqChat if no agent
-                if is_complex and GROQ_AVAILABLE and not self.agent:
+                if is_complex and GROQ_AVAILABLE:
                     print()
                     if RICH_AVAILABLE and console:
                         with console.status("[bold bright_cyan]  🤖 Thinking...", spinner="dots"):
@@ -4061,7 +3676,6 @@ class NovaCLI:
                         # Check if app exists in cache before trying to launch
                         app_name, app_path = APP_FINDER.find_app(app_query)
                         if app_path:
-                            # Prioritize fast local launch if found in cache
                             success, message = APP_FINDER.launch_app(app_query)
                             if success:
                                 if RICH_AVAILABLE and console:
@@ -4069,12 +3683,6 @@ class NovaCLI:
                                 else:
                                     print(f"🚀 {message}")
                                 quick_handled = True
-                            
-                    # If local fuzzy match failed but it really looks like an "open" command,
-                    # DON'T send to LLM if it's just "open <unknown>", might be better to error or fallback to Google search
-                    if not quick_handled and has_trigger and len(app_query.split()) < 3:
-                        # Try one last fallback: Web Search
-                         pass
 
                 if quick_handled:
                     continue
@@ -4100,69 +3708,7 @@ class NovaCLI:
 
                 # 2. Process with fallback (if nothing else caught it)
                 print()
-                
-                # Try Ollama Brain first if available (and not already handled locally)
-                brain_response = None
-                
-                # Check for "fast actions" that slipped through regex but are definitely automation
-                # e.g. "turn up volume", "lock pc" - try to handle without LLM if possible
-                is_fast_action = False
-                
-                if not quick_handled and OLLAMA_AVAILABLE and getattr(self, 'brain', None) and self.brain.available:
-                    # Skip brain for simple chat greetings or short phrases to keep it snappy
-                    if len(user_input.split()) <= 2 and not any(k in user_input.lower() for k in ['open', 'run', 'start', 'lock', 'turn']):
-                        pass
-                    else:
-                        # STANDARD SUPER AGENT MODE
-                        # The Agent is now the default handler for everything not caught by quick commands.
-                        if getattr(self, 'agent', None):
-                             if RICH_AVAILABLE and console:
-                                # console.print("[bold bright_magenta]🤖 ACTIVATING AGENT...[/]") # Too noisy?
-                                pass
-                             
-                             # Detect emotional state
-                             current_emotion = self._detect_emotion(user_input)
-                             
-                             # Run the agent directly
-                             brain_response = self.agent.run_goal(user_input, emotion=current_emotion)
-                             
-                        else:
-                            # Fallback if agent init failed for some reason
-                            if RICH_AVAILABLE and console:
-                                 with console.status("[bold bright_cyan]  🧠 Nova Brain Thinking...", spinner="dots"):
-                                    action = self.brain.interpret_automation_command(user_input)
-                            else:
-                                print("  🧠 Nova Brain Thinking...")
-                                action = self.brain.interpret_automation_command(user_input)
-
-                            if isinstance(action, list):
-                                # Multi-step command
-                                results = []
-                                for step in action:
-                                    if AUTOMATION_AVAILABLE and isinstance(step, dict) and 'action' in step:
-                                        print(f"  ⚡ Executing step: {step.get('action')}")
-                                        success, result = UCE.controller.execute_structured(step)
-                                        results.append("✅ " + str(result) if success else "❌ " + str(result))
-                                brain_response = "\n".join(results)
-                            
-                            elif isinstance(action, dict):
-                                if action.get('action') == 'chat':
-                                    brain_response = action.get('response')
-                                elif AUTOMATION_AVAILABLE:
-                                    # Execute automation command
-                                    print(f"  ⚡ Executing: {action.get('action')}")
-                                    success, result = UCE.controller.execute_structured(action)
-                                    if success:
-                                        brain_response = f"Done. {result}"
-                                    else:
-                                        brain_response = f"Failed: {result}"
-                                else:
-                                    brain_response = f"I understood you want to {action.get('action')}, but automation is disabled."
-
-                
-                if brain_response:
-                    response = brain_response
-                elif RICH_AVAILABLE and console:
+                if RICH_AVAILABLE and console:
                     with console.status("[bold bright_cyan]  🤖 Thinking...", spinner="dots"):
                         response = GroqChat.chat(user_input)
                 else:

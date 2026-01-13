@@ -1,0 +1,26 @@
+{
+    "create_python_script": {
+        "description": "Create a Python script file",
+        "template": "#!/usr/bin/env python3\n# -*- coding: utf-8 -*-\n\"\"\"{description}\"\"\"\n\ndef main():\n    {body}\n\nif __name__ == '__main__':\n    main()"
+    },
+    "create_web_scraper": {
+        "description": "Create a web scraper",
+        "template": "import requests\nfrom bs4 import BeautifulSoup\n\ndef scrape(url):\n    response = requests.get(url)\n    soup = BeautifulSoup(response.text, 'html.parser')\n    return soup\n\nif __name__ == '__main__':\n    result = scrape('https://example.com')\n    print(result.title.text)"
+    },
+    "create_automation_script": {
+        "description": "Create a desktop automation script",
+        "template": "import pyautogui\nimport time\n\ndef automate():\n    time.sleep(2)\n    {actions}\n\nif __name__ == '__main__':\n    automate()"
+    },
+    "create_api_endpoint": {
+        "description": "Create a Flask API endpoint",
+        "template": "from flask import Flask, jsonify, request\n\napp = Flask(__name__)\n\n@app.route('/api/{endpoint}', methods=['GET', 'POST'])\ndef {function_name}():\n    {body}\n    return jsonify({'status': 'success'})\n\nif __name__ == '__main__':\n    app.run(debug=True)"
+    },
+    "create_data_processor": {
+        "description": "Create a data processing script",
+        "template": "import json\nimport csv\n\ndef process_data(input_file, output_file):\n    with open(input_file, 'r') as f:\n        data = json.load(f)\n    \n    processed = {processing_logic}\n    \n    with open(output_file, 'w') as f:\n        json.dump(processed, f, indent=2)\n    \n    return processed"
+    },
+    "create_cli_tool": {
+        "description": "Create a command-line tool",
+        "template": "#!/usr/bin/env python3\nimport argparse\n\ndef main():\n    parser = argparse.ArgumentParser(description='{description}')\n    parser.add_argument('input', help='Input file')\n    parser.add_argument('-o', '--output', help='Output file')\n    args = parser.parse_args()\n    \n    {body}\n\nif __name__ == '__main__':\n    main()"
+    }
+}

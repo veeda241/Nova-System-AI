@@ -1,12 +1,28 @@
 #!/usr/bin/env python3
-"""Update nova_ble.py with new multi-page mobile UI - Fixed Version."""
+"""Update nova_ble.py with new multi-page mobile UI - Reorganized Version."""
+
+import os
+
+# Get paths relative to script location
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
+UI_HTML_PATH = os.path.join(PROJECT_ROOT, 'nova_ble_ui.html')
+BLE_PY_PATH = os.path.join(PROJECT_ROOT, 'Core Files', 'nova_ble.py')
 
 # Read the new UI
-with open('nova_ble_ui.html', 'r', encoding='utf-8') as f:
+if not os.path.exists(UI_HTML_PATH):
+    print(f"ERROR: Could not find {UI_HTML_PATH}")
+    exit(1)
+
+with open(UI_HTML_PATH, 'r', encoding='utf-8') as f:
     new_html = f.read()
 
 # Read nova_ble.py
-with open('nova_ble.py', 'r', encoding='utf-8') as f:
+if not os.path.exists(BLE_PY_PATH):
+    print(f"ERROR: Could not find {BLE_PY_PATH}")
+    exit(1)
+
+with open(BLE_PY_PATH, 'r', encoding='utf-8') as f:
     content = f.read()
 
 # Find the HTML start
@@ -35,7 +51,7 @@ footer = content[class_idx:]
 new_content = header + "MOBILE_UI_HTML = '''" + new_html + "'''\n\n\n" + footer
 
 # Write back
-with open('nova_ble.py', 'w', encoding='utf-8') as f:
+with open(BLE_PY_PATH, 'w', encoding='utf-8') as f:
     f.write(new_content)
 
 print("✓ Updated nova_ble.py with multi-page UI!")
