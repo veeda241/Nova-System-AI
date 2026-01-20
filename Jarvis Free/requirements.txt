@@ -1,0 +1,11 @@
+requests
+psutil
+pyautogui
+screen_brightness_control
+pyttsx3
+PyAudio
+SpeechRecognition
+pygame
+openai-whisper
+PyQt6
+PyQt6-WebEngine

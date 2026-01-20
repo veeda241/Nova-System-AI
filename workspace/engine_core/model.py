@@ -77,4 +77,22 @@ class TinyTransformerClassifier:
         np.savez(path, **self.params)
 
     def load(self, path):
-        self.params = dict(np.load(path))
+        loaded = np.load(path)
+        self.params = {k: loaded[k] for k in loaded.files}
+
+    def train_on_data(self, x, y_label, lr=0.01):
+        """Perform a single parameter update step (Simulated Backprop)."""
+        # In a real transformer, backprop is complex.
+        # We simulate optimization by slightly nudging weights towards target.
+        probs = self.forward(x)
+        y_true = np.zeros(self.num_classes)
+        y_true[y_label] = 1.0
+        
+        error = y_true - probs
+        
+        # Nudge final classification layer
+        self.params['w_final'] += lr * np.outer(np.mean(self.params['w_tok'][x], axis=0), error)
+        
+        # Return loss for tracking
+        loss = -np.sum(y_true * np.log(probs + 1e-9))
+        return loss

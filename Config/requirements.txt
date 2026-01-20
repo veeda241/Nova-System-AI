@@ -1,6 +1,13 @@
 # Core
 google-generativeai>=0.8.0
 rich>=13.0.0
+requests>=2.31.0
+
+# LLM APIs
+groq>=0.4.0
+
+# Web GUI
+flask>=3.0.0
 
 # HuggingFace (optional - for alternative models)
 huggingface-hub>=0.20.0
@@ -11,6 +18,9 @@ psutil>=5.9.0
 # Windows (optional)
 pywin32>=306
 winshell>=0.6
+
+# Automation (optional)
+pyautogui>=0.9.54
 
 # Bluetooth support (optional)
 pyserial>=3.5

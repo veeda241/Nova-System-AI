@@ -205,13 +205,20 @@ class MCPAgent:
             {"role": "user", "content": prompt}
         ]
         
-        response = self.client.chat(self.model, messages)
-        
-        if "error" in response:
-            result["errors"] = f"LLM Error: {response['error']}"
-            return result
-        
-        llm_output = response.get("message", {}).get("content", "")
+        # Try Ollama first
+        if self.client.is_available():
+            response = self.client.chat(self.model, messages)
+            llm_output = response.get("message", {}).get("content", "")
+        else:
+            # Fallback to Groq
+            print("  [INFO] Ollama not available, falling back to Groq...")
+            try:
+                from nova_system.groq_brain import GroqBrain
+                groq = GroqBrain()
+                llm_output = groq.generate_response(prompt, system_prompt=system_prompt)
+            except Exception as e:
+                result["errors"] = f"All AI backends failed: {e}"
+                return result
         
         if not llm_output:
             result["errors"] = "LLM returned empty response"

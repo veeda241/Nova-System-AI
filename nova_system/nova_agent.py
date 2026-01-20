@@ -90,6 +90,13 @@ class NovaAutonomousAgent:
             print(f"⚡ Executing: {action_type}")
             result = self.execute_action(next_action)
             
+            # AUTO-FINISH for chat actions to prevent infinite loops
+            if action_type == 'chat' and result and not isinstance(result, dict):
+                print(f"\n✅ Conversational task completed.")
+                if self.self_prog:
+                    self.self_prog.memory.remember_task(goal, str(result), True, self.history)
+                return result
+            
             # 3. OBSERVE: Record the result
             observation = f"Action: {action_type}\nResult: {result}"
             self.history.append({"role": "assistant", "content": json.dumps(next_action)})
@@ -216,17 +223,38 @@ class NovaAutonomousAgent:
         
         # Clean and parse JSON
         try:
-            if "```json" in response:
-                response = response.split("```json")[1].split("```")[0].strip()
-            elif "```" in response:
-                response = response.split("```")[1].split("```")[0].strip()
+            # Multi-stage cleaning
+            clean_response = response.strip()
             
-            start = response.find('{')
-            end = response.rfind('}')
+            # Handle markdown blocks
+            if "```json" in clean_response:
+                clean_response = clean_response.split("```json")[1].split("```")[0].strip()
+            elif "```" in clean_response:
+                clean_response = clean_response.split("```")[1].split("```")[0].strip()
+            
+            # Extract main object
+            start = clean_response.find('{')
+            end = clean_response.rfind('}')
             if start != -1 and end != -1:
-                response = response[start:end+1]
-                
-            return json.loads(response)
+                clean_response = clean_response[start:end+1]
+            
+            # Final attempt to parse
+            try:
+                data = json.loads(clean_response)
+                # Validation: must have action
+                if 'action' not in data:
+                    return None
+                return data
+            except json.JSONDecodeError:
+                # LLM might have used single quotes - risky but worth a shot for small objects
+                import ast
+                try:
+                    data = ast.literal_eval(clean_response)
+                    if isinstance(data, dict) and 'action' in data:
+                        return data
+                except:
+                    pass
+                return None
         except Exception as e:
             print(f"  ⚠️ JSON parse error: {e}")
             return None

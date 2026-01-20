@@ -51,6 +51,11 @@ class NovaAutonomousAgent:
             print(f"⚡ Executing: {action_type}")
             result = self.execute_action(next_action)
             
+            # AUTO-FINISH: If we just answered via chat, we're done!
+            if action_type == 'chat':
+                print(f"\n✅ Question answered")
+                return result
+            
             # 3. OBSERVE: Record the result
             observation = f"Action: {action_type}\nResult: {result}"
             self.history.append({"role": "assistant", "content": json.dumps(next_action)})

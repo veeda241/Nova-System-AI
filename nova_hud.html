@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nova HUD</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Roboto+Mono:wght@300;500&display=swap"
+        rel="stylesheet">
+    <style>
+        :root {
+            --primary: #00d2ff;
+            --secondary: #3a7bd5;
+            --bg: rgba(10, 10, 20, 0.85);
+            --text: #e0e0e0;
+            --accent: #00f2fe;
+            --danger: #ff4b2b;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background: transparent;
+            color: var(--text);
+            font-family: 'Roboto Mono', monospace;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        #hud-container {
+            width: 95vw;
+            height: 95vh;
+            background: var(--bg);
+            border: 2px solid var(--primary);
+            border-radius: 20px;
+            box-shadow: 0 0 30px rgba(0, 210, 255, 0.3);
+            display: grid;
+            grid-template-columns: 280px 1fr 280px;
+            grid-template-rows: 1fr 180px;
+            padding: 25px;
+            gap: 20px;
+            backdrop-filter: blur(15px);
+            position: relative;
+        }
+
+        /* Top Controls */
+        #top-controls {
+            position: absolute;
+            top: 20px;
+            right: 25px;
+            display: flex;
+            gap: 15px;
+            z-index: 100;
+        }
+
+        .control-btn {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(0, 210, 255, 0.3);
+            color: var(--primary);
+            width: 35px;
+            height: 35px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            transition: 0.3s;
+        }
+
+        .control-btn:hover {
+            background: var(--primary);
+            color: #000;
+            box-shadow: 0 0 15px var(--primary);
+        }
+
+        .close-btn:hover {
+            background: var(--danger);
+            border-color: var(--danger);
+            box-shadow: 0 0 15px var(--danger);
+        }
+
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .stat-card {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 15px;
+            border-left: 4px solid var(--primary);
+            border-radius: 5px;
+            border-right: 1px solid rgba(0, 210, 255, 0.1);
+        }
+
+        .stat-label {
+            font-size: 0.75rem;
+            color: var(--primary);
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            opacity: 0.8;
+        }
+
+        .stat-value {
+            font-size: 1.4rem;
+            font-weight: bold;
+            margin-top: 5px;
+            font-family: 'Orbitron', sans-serif;
+        }
+
+        .central-view {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+        }
+
+        #reactor {
+            width: 260px;
+            height: 260px;
+            border-radius: 50%;
+            border: 4px dashed var(--primary);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            animation: rotate 30s linear infinite;
+        }
+
+        #reactor-inner {
+            width: 190px;
+            height: 190px;
+            border-radius: 50%;
+            background: radial-gradient(circle, var(--accent) 0%, var(--secondary) 100%);
+            box-shadow: 0 0 60px var(--primary);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            animation: pulse 2.5s ease-in-out infinite;
+            cursor: pointer;
+            transition: 0.3s;
+        }
+
+        #reactor-inner:hover {
+            box-shadow: 0 0 80px var(--accent);
+            transform: scale(1.02);
+        }
+
+        #reactor-inner i {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 2.2rem;
+            color: white;
+            text-shadow: 0 0 15px rgba(255, 255, 255, 0.8);
+        }
+
+        @keyframes rotate {
+            from {
+                transform: rotate(0deg);
+            }
+
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                transform: scale(1);
+                opacity: 0.8;
+            }
+
+            50% {
+                transform: scale(1.08);
+                opacity: 1;
+            }
+        }
+
+        #console {
+            grid-column: 2 / 3;
+            background: rgba(0, 0, 0, 0.4);
+            border-radius: 15px;
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            border: 1px solid rgba(0, 210, 255, 0.2);
+            scrollbar-width: thin;
+            scrollbar-color: var(--primary) transparent;
+        }
+
+        .msg {
+            margin: 5px 0;
+            line-height: 1.5;
+            opacity: 0;
+            transform: translateY(10px);
+            animation: fadeIn 0.4s forwards;
+            font-size: 0.95rem;
+        }
+
+        .user-msg {
+            color: #fff;
+            text-align: right;
+        }
+
+        .user-msg span {
+            background: rgba(58, 123, 213, 0.5);
+            padding: 10px 16px;
+            border-radius: 15px 15px 0 15px;
+            display: inline-block;
+        }
+
+        .nova-msg {
+            color: var(--primary);
+            text-align: left;
+        }
+
+        .nova-msg span {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 10px 16px;
+            border-radius: 15px 15px 15px 0;
+            border: 1px solid rgba(0, 210, 255, 0.2);
+            display: inline-block;
+        }
+
+        @keyframes fadeIn {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        #input-area {
+            grid-column: 1 / 4;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            border-top: 1px solid rgba(0, 210, 255, 0.2);
+            padding-top: 25px;
+        }
+
+        #cmd-input {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.07);
+            border: 2px solid var(--primary);
+            border-radius: 35px;
+            padding: 18px 30px;
+            color: white;
+            font-family: 'Roboto Mono', monospace;
+            font-size: 1.1rem;
+            outline: none;
+            transition: 0.3s;
+        }
+
+        #cmd-input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 20px rgba(0, 210, 255, 0.4);
+        }
+
+        .bar-container {
+            width: 100%;
+            height: 5px;
+            background: rgba(255, 255, 255, 0.1);
+            margin-top: 10px;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--secondary), var(--primary));
+            transition: 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        #vision-container {
+            position: absolute;
+            bottom: 260px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+        }
+
+        #vision-btn {
+            background: rgba(0, 210, 255, 0.15);
+            border: 1px solid var(--primary);
+            color: var(--primary);
+            padding: 10px 25px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-family: 'Orbitron';
+            font-size: 0.75rem;
+            transition: 0.3s;
+            letter-spacing: 1px;
+        }
+
+        #vision-btn:hover {
+            background: var(--primary);
+            color: black;
+            box-shadow: 0 0 20px var(--primary);
+            transform: translateY(-2px);
+        }
+
+        .learning-indicator {
+            color: #ffd700;
+            font-size: 0.7rem;
+            font-weight: bold;
+            margin-top: 10px;
+            text-transform: uppercase;
+            animation: flash 2s infinite;
+        }
+
+        @keyframes flash {
+
+            0%,
+            100% {
+                opacity: 0.5;
+            }
+
+            50% {
+                opacity: 1;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div id="hud-container">
+        <!-- Top Controls -->
+        <div id="top-controls">
+            <button class="control-btn" title="Minimize to Tray" onclick="window.pyObj.minimize_to_tray()">—</button>
+            <button class="control-btn close-btn" title="Exit Nova" onclick="window.pyObj.exit_app()">×</button>
+        </div>
+
+        <!-- System Stats -->
+        <div class="sidebar">
+            <div class="stat-card">
+                <div class="stat-label">CPU LOAD</div>
+                <div class="stat-value" id="cpu-val">--%</div>
+                <div class="bar-container">
+                    <div class="bar-fill" id="cpu-bar" style="width: 0%"></div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">MEMORY USAGE</div>
+                <div class="stat-value" id="mem-val">--%</div>
+                <div class="bar-container">
+                    <div class="bar-fill" id="mem-bar" style="width: 0%"></div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">UPTIME</div>
+                <div class="stat-value" id="uptime">--:--</div>
+            </div>
+        </div>
+
+        <div class="central-view">
+            <div id="reactor">
+                <div id="reactor-inner" onclick="document.getElementById('cmd-input').focus()">
+                    <i>NOVA</i>
+                </div>
+            </div>
+            <div id="status-text"
+                style="margin-top: 25px; font-weight: bold; color: var(--primary); letter-spacing: 3px; font-family: 'Orbitron';">
+                NEURAL CORE ACTIVE</div>
+
+            <div id="vision-container">
+                <button id="vision-btn" onclick="takeVision()">EYE OF NOVA</button>
+            </div>
+        </div>
+
+        <!-- AI Analytics -->
+        <div class="sidebar">
+            <div class="stat-card">
+                <div class="stat-label">BATTERY LIFE</div>
+                <div class="stat-value" id="bat-val">--%</div>
+                <div class="bar-container">
+                    <div class="bar-fill" id="bat-bar" style="width: 0%"></div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">NLP ANALYTICS</div>
+                <div class="stat-value" id="habits-val" style="color: #ffd700;">ACTIVE</div>
+                <div class="learning-indicator">Neural Processing On</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">VOICE MODE</div>
+                <div class="stat-value" style="color: #0f0; font-size: 1rem;">LISTENING</div>
+            </div>
+        </div>
+
+        <div id="console">
+            <div class="nova-msg msg"><span>Nova System Initialized. AI Brain (NLP) is active. I am listening for your
+                    command.</span></div>
+        </div>
+
+        <div id="input-area">
+            <input type="text" id="cmd-input" placeholder="Type a command or say 'Nova'..." autocomplete="off">
+        </div>
+    </div>
+
+    <script>
+        const consoleEl = document.getElementById('console');
+        const cmdInput = document.getElementById('cmd-input');
+
+        function addMessage(text, role) {
+            const div = document.createElement('div');
+            div.className = `msg ${role}-msg`;
+            div.innerHTML = `<span>${text}</span>`;
+            consoleEl.appendChild(div);
+            consoleEl.scrollTop = consoleEl.scrollHeight;
+        }
+
+        cmdInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && cmdInput.value.trim()) {
+                const text = cmdInput.value.trim();
+                addMessage(text, 'user');
+                cmdInput.value = '';
+                if (window.pyObj) window.pyObj.process_input(text);
+            }
+        });
+
+        function takeVision() {
+            if (window.pyObj) {
+                addMessage("[EYE OF NOVA] Initializing visual sensors...", "nova");
+                window.pyObj.capture_vision();
+            }
+        }
+
+        window.updateStats = (stats) => {
+            if (stats.cpu) { document.getElementById('cpu-val').innerText = stats.cpu + '%'; document.getElementById('cpu-bar').style.width = stats.cpu + '%'; }
+            if (stats.mem) { document.getElementById('mem-val').innerText = stats.mem + '%'; document.getElementById('mem-bar').style.width = stats.mem + '%'; }
+            if (stats.bat) { document.getElementById('bat-val').innerText = stats.bat + '%'; document.getElementById('bat-bar').style.width = stats.bat + '%'; }
+            if (stats.uptime) { document.getElementById('uptime').innerText = stats.uptime; }
+        };
+
+        window.setNovaResponse = (text) => addMessage(text, 'nova');
+        window.setStatus = (status, color) => {
+            const el = document.getElementById('status-text');
+            el.innerText = status;
+            if (color) el.style.color = color;
+        };
+    </script>
+</body>
+
+</html>

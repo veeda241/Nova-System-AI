@@ -2,10 +2,18 @@ import json
 import requests
 import sys
 
+# Try to use enhanced brain if available
+try:
+    from nova_system.nova_enhanced_brain import EnhancedNovaBrain, get_enhanced_brain
+    ENHANCED_AVAILABLE = True
+except ImportError:
+    ENHANCED_AVAILABLE = False
+
 class NovaBrain:
     """
-    NovaBrain - The LLM interface for Nova System AI using Ollama.
-    Connects to a local Ollama instance to provide intelligence and automation capabilities.
+    NovaBrain v2.0 - The LLM interface for Nova System AI using Ollama.
+    Now with enhanced capabilities: CoT reasoning, self-reflection, streaming.
+    For full power, use EnhancedNovaBrain from nova_system.nova_enhanced_brain
     """
     
     def __init__(self, model="llama3", base_url="http://localhost:11434"):

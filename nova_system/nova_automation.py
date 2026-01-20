@@ -832,12 +832,16 @@ class UnifiedControlEngine:
         self.SYSTEM = SystemInteractionEngine()
     
     def get_status(self) -> Dict:
-        """Get status of all engines."""
+        """Get status of all engines for Nova CLI."""
         return {
-            "HASE": self.HASE is not None,
-            "AWCL_APP": self.AWCL_APP is not None,
-            "AWCL_WEB": self.AWCL_WEB is not None,
-            "SYSTEM": self.SYSTEM is not None,
+            "name": "Nova Unified Control Engine",
+            "version": "2.0.0",
+            "engines": {
+                "HASE (Human Simulation)": self.HASE.pyautogui is not None if self.HASE else False,
+                "AWCL-APP (Desktop)": self.AWCL_APP is not None,
+                "AWCL-WEB (Browser)": self.AWCL_WEB.selenium is not None if self.AWCL_WEB else False,
+                "SYSTEM (Core)": self.SYSTEM is not None
+            },
             "system_info": self.SYSTEM.get_system_status() if self.SYSTEM else None
         }
 
@@ -853,11 +857,17 @@ CONTROLLER = UCE  # Alias
 def get_automation_status():
     return UCE.get_status()
 
-def quick_command(cmd, arg=None):
+def quick_command(full_cmd):
     """
-    Quickly execute an automation command.
+    Quickly execute an automation command from a full string.
+    Supports: open <app>, close <app>, volume <X>, mute, lock, etc.
     """
-    cmd = cmd.lower()
+    parts = full_cmd.lower().strip().split()
+    if not parts:
+        return False, "No command provided"
+    
+    cmd = parts[0]
+    arg = " ".join(parts[1:]) if len(parts) > 1 else None
     
     if cmd == "mute":
         return SYSTEM.mute()
@@ -865,6 +875,10 @@ def quick_command(cmd, arg=None):
         return SYSTEM.unmute()
     elif cmd == "lock":
         return SYSTEM.lock_screen()
+    elif cmd == "sleep":
+        return SYSTEM.sleep()
+    elif cmd == "screenshot":
+        return HASE.screenshot(filename="screenshot.png")
     elif cmd == "open" and arg:
         return AWCL_APP.open_app(arg)
     elif cmd == "close" and arg:
@@ -874,5 +888,23 @@ def quick_command(cmd, arg=None):
             return SYSTEM.set_volume(int(arg))
         except:
             return False, "Invalid volume"
+    elif cmd == "brightness" and arg:
+        try:
+            return SYSTEM.set_brightness(int(arg))
+        except:
+            return False, "Invalid brightness"
+    elif cmd == "go" and (arg.startswith("to ") or arg.startswith("http")):
+        url = arg.replace("to ", "")
+        return AWCL_WEB.open_url(url)
+    elif cmd == "search" and arg:
+        return AWCL_WEB.search_google(arg)
+    elif cmd == "play" and arg:
+        return AWCL_WEB.play_youtube(arg)
+    elif cmd == "type" and arg:
+        return HASE.type_text(arg)
+    elif cmd == "status":
+        return True, SYSTEM.get_system_status()
+    elif cmd == "clear" and arg == "temp":
+        return SYSTEM.clear_temp_files()
     
-    return False, "Unknown command"
+    return False, f"Unknown or incomplete command: {cmd}"

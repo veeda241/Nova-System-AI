@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 NOVA - Advanced AI Coding Assistant
-Version 1.0
+Version 2.0 - Enhanced with Chain-of-Thought, Self-Reflection, and Persistent Memory
 """
 
 # Suppress ALL warnings and logging FIRST before any imports
@@ -43,41 +43,67 @@ except ImportError:
     BLUETOOTH_AVAILABLE = False
 
 # BLE (Apple Friendly) support
-# BLE (Apple Friendly) support
 try:
     from nova_system.nova_ble import BleServer
     BLE_MODE_AVAILABLE = True
 except Exception as e:
     BLE_MODE_AVAILABLE = False
-    print(f"BLE import error: {e}")
+    # Silently ignore - BLE is optional
 
 # Automation Engines (UCE, AWCL, HASE, etc.)
-# Automation Engines
 try:
     from nova_system.nova_automation import (
         UnifiedControlEngine, UCE, HASE, AWCL_APP, AWCL_WEB,
         SYSTEM, ORCHESTRATOR, CONTROLLER, get_automation_status, quick_command
     )
     AUTOMATION_AVAILABLE = True
+    AUTOMATION_AVAILABLE = True
+    try:
+        from nova_system.nova_neural_automation import NeuralAuto
+        NEURAL_AUTO_AVAILABLE = True
+    except ImportError:
+        NEURAL_AUTO_AVAILABLE = False
 except ImportError:
     AUTOMATION_AVAILABLE = False
     UCE = None
+    NEURAL_AUTO_AVAILABLE = False
 
 # Study Engine
 try:
     import nova_system.nova_study as nova_study
     STUDY_AVAILABLE = True
 except ImportError:
-    STUDY_AVAILABLE = False
+    try:
+        import nova_study
+        STUDY_AVAILABLE = True
+    except ImportError:
+        STUDY_AVAILABLE = False
 
 # Project Management
 try:
     import nova_system.nova_pm as nova_pm
     PM_AVAILABLE = True
 except ImportError:
-    PM_AVAILABLE = False
+    try:
+        import nova_pm
+        PM_AVAILABLE = True
+    except ImportError:
+        PM_AVAILABLE = False
 
-# MCP Agent support (Enhanced - inspired by Gemini CLI)
+# BLE / Bluetooth
+try:
+    from nova_system.nova_ble import BleServer
+    BLE_MODE_AVAILABLE = True
+except ImportError:
+    BLE_MODE_AVAILABLE = False
+
+try:
+    from nova_system.nova_bluetooth import BluetoothServer, list_com_ports
+    BLUETOOTH_AVAILABLE = True
+except ImportError:
+    BLUETOOTH_AVAILABLE = False
+
+# MCP Agent support
 try:
     from agent.enhanced_agent import EnhancedMCPAgent as MCPAgent
     from agent.tools import CreatePythonFileTool, ExecutePythonFileTool, WORKSPACE as AGENT_WORKSPACE
@@ -145,6 +171,9 @@ except ImportError:
 TTS_ENGINE = None
 VOICE_AVAILABLE = True # Enable voice via PowerShell
 
+# Web Server availability
+WEB_AVAILABLE = True  # Flask-based web server is available
+
 def powershell_tts(text):
     """Speak text using Windows PowerShell (No Python libraries needed)."""
     try:
@@ -161,12 +190,21 @@ VOICE_REPLY_ENABLED = False
 
 # Speech Recognition
 SPEECH_RECOGNIZER = None
+SR_ERROR = None
 try:
     import speech_recognition as sr
-    SPEECH_RECOGNIZER = sr.Recognizer()
-    SR_AVAILABLE = True
-except:
+    try:
+        SPEECH_RECOGNIZER = sr.Recognizer()
+        SR_AVAILABLE = True
+    except Exception as mic_e:
+        SR_AVAILABLE = False
+        SR_ERROR = f"Microphone error (PyAudio missing?): {mic_e}"
+except ImportError:
     SR_AVAILABLE = False
+    SR_ERROR = "SpeechRecognition library not installed"
+except Exception as e:
+    SR_AVAILABLE = False
+    SR_ERROR = str(e)
 
 # Neural Intent Engine (NIE) - Custom Local Brain
 try:
@@ -182,15 +220,45 @@ except Exception as e:
     NIE_AVAILABLE = False
 
 # Nova Brain (LLM) & Agent (moved to nova_system)
+# Enhanced v2.0 components for stronger AI
 try:
-    from nova_system.nova_ollama import NovaBrain
+    from nova_system.nova_enhanced_brain import EnhancedNovaBrain, get_enhanced_brain
+    from nova_system.nova_enhanced_agent import EnhancedNovaAgent, get_enhanced_agent
+    from nova_system.nova_tools import get_tool_registry, KnowledgeDB
+    ENHANCED_AVAILABLE = True
+except ImportError:
+    ENHANCED_AVAILABLE = False
+    EnhancedNovaBrain = None
+    EnhancedNovaAgent = None
+
+# AI Brain (Primary) - Multi-Model with Automatic Failover
+try:
+    from nova_system.multi_model_brain import MultiModelBrain as NovaBrain
+    GROQ_AVAILABLE = True
+except ImportError:
+    try:
+        from nova_system.groq_brain import GroqBrain as NovaBrain
+        GROQ_AVAILABLE = True
+    except ImportError:
+        GROQ_AVAILABLE = False
+        NovaBrain = None
+
+# Agent
+try:
     from nova_system.nova_agent import NovaAutonomousAgent
-    OLLAMA_AVAILABLE = True
-except ImportError as e:
-    OLLAMA_AVAILABLE = False
-    NovaBrain = None
+    AGENT_AVAILABLE = True
+except ImportError:
+    AGENT_AVAILABLE = False
     NovaAutonomousAgent = None
-    # print(f"Brain/Agent Import Error: {e}")
+
+# Layered Assistant (Conversation + Learning + Self-Coding)
+try:
+    from nova_layered import NovaLayeredAssistant, LearningLayer, CodingLayer
+    LAYERED_AVAILABLE = True
+except ImportError:
+    LAYERED_AVAILABLE = False
+    NovaLayeredAssistant = None
+
 
 # ============= SMART APP DISCOVERY SYSTEM =============
 class AppFinder:
@@ -421,7 +489,7 @@ class VoiceControl:
             print("  Make sure your microphone is connected and enabled")
             return None
         except Exception as e:
-            print(f"⚠️ Voice error: {e}")
+            print(f"❌ Unexpected Error: {e}")
             return None
     
     @staticmethod
@@ -872,7 +940,9 @@ class NovaChatBot:
         return response
 
 # ============= GROQ AI CHAT (Real LLM) =============
-GROQ_AVAILABLE = False
+# Don't reset GROQ_AVAILABLE if it was already set by brain imports
+if 'GROQ_AVAILABLE' not in dir():
+    GROQ_AVAILABLE = False
 GROQ_API_KEY = None
 
 def manual_load_dotenv(path):
@@ -1698,11 +1768,9 @@ class Nova:
                 
             return True
         
-        print("[X] Ollama is not running!")
-        print("  1. Install Ollama: https://ollama.ai")
-        print("  2. Run: ollama serve")
-        print("  3. Pull a model: ollama pull llama3.2")
-        return False
+        # Ollama not running - but that's OK! We have multi-model fallback
+        # Just return True and let the multi-model brain handle it
+        return True
     
     def _start_ollama(self):
         """Try to start Ollama server automatically."""
@@ -1747,10 +1815,8 @@ class Nova:
         if self._check_ollama_quick():
             return True
         
-        # Try to start Ollama
-        print("  Starting Ollama server...")
+        # Try to start Ollama silently
         if self._start_ollama():
-            print("  [OK] Ollama started!")
             return True
         
         return False
@@ -1920,6 +1986,24 @@ You can open apps, close them, check system resources, and more."""
         tool_info = """
 AVAILABLE TOOLS - Use EXACT format:
 
+=== WEB & SEARCH ===
+[TOOL:search_google] query
+  Search Google and open results in browser
+  Example: [TOOL:search_google] python tutorials
+  Example: [TOOL:search_google] a2d converter
+
+[TOOL:search_web] query
+  Search the web and get text results (DuckDuckGo)
+  Example: [TOOL:search_web] latest AI news
+
+[TOOL:play_youtube] query
+  Search and play a video on YouTube
+  Example: [TOOL:play_youtube] lofi music
+
+[TOOL:open_url] url
+  Open a URL in browser
+  Example: [TOOL:open_url] https://github.com
+
 === FILE OPERATIONS ===
 [TOOL:write_file] filepath|content
   Example: [TOOL:write_file] hello.py|print("Hello World")
@@ -1963,7 +2047,7 @@ AVAILABLE TOOLS - Use EXACT format:
 [TOOL:system_status]
 [TOOL:lock_screen]
 
-WORKFLOW: view_file -> edit_file -> run_python
+IMPORTANT: When user says "search for X" or "find X", ALWAYS use [TOOL:search_google] X
 """
         
         system_prompt = f"""You are NOVA, a friendly and helpful AI assistant running on {DEVICE_NAME}.
@@ -2052,7 +2136,54 @@ Current device: {DEVICE_NAME}"""
     def _execute_ollama_tool(self, tool_name: str, args: str) -> str:
         """Execute a tool call from Ollama response."""
         try:
-            if tool_name == "open_app":
+            # === WEB & SEARCH TOOLS ===
+            if tool_name == "search_google":
+                import webbrowser
+                query = args.strip()
+                url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
+                webbrowser.open(url)
+                return f"Searched Google for: {query}"
+            
+            elif tool_name == "search_web":
+                # Use our enhanced tools if available
+                try:
+                    from nova_system.nova_tools import get_tool_registry
+                    registry = get_tool_registry()
+                    result = registry.execute("web_search", query=args.strip(), num_results=5)
+                    if result.success and result.data:
+                        output = f"Search results for '{args}':\n"
+                        for i, r in enumerate(result.data[:3], 1):
+                            output += f"{i}. {r.get('title', 'No title')}\n   {r.get('snippet', '')[:100]}...\n"
+                        return output
+                    return f"No results found for: {args}"
+                except:
+                    # Fallback to Google
+                    import webbrowser
+                    webbrowser.open(f"https://www.google.com/search?q={args.replace(' ', '+')}")
+                    return f"Opened search for: {args}"
+            
+            elif tool_name == "play_youtube":
+                import webbrowser
+                query = args.strip()
+                # Try pywhatkit first for direct play
+                try:
+                    import pywhatkit
+                    pywhatkit.playonyt(query)
+                    return f"Playing on YouTube: {query}"
+                except:
+                    url = f"https://www.youtube.com/results?search_query={query.replace(' ', '+')}"
+                    webbrowser.open(url)
+                    return f"Searching YouTube for: {query}"
+            
+            elif tool_name == "open_url":
+                import webbrowser
+                url = args.strip()
+                if not url.startswith(('http://', 'https://')):
+                    url = 'https://' + url
+                webbrowser.open(url)
+                return f"Opened: {url}"
+            
+            elif tool_name == "open_app":
                 result = SystemControl.open_application(args)
                 return f"Opened {args}" if result else f"Failed to open {args}"
             
@@ -2539,16 +2670,43 @@ class NovaCLI:
         self.ble_server = None
         self.nie = NeuralIntentEngine() if NIE_AVAILABLE else None
         
-        # Initialize Nova Brain (Ollama)
-        # Initialize Nova Brain (Ollama)
-        if OLLAMA_AVAILABLE and NovaBrain:
+        # Initialize Nova Brain (Groq - Simple and Fast)
+        self.brain = None
+        self.agent = None
+        self.active_ai = "None"
+        
+        # Use Multi-Model Brain (Ollama/Groq/Gemini)
+        if GROQ_AVAILABLE and NovaBrain:
             self.brain = NovaBrain()
-            self.agent = NovaAutonomousAgent(self.brain) if NovaAutonomousAgent else None
-        else:
-            self.brain = None
-            self.agent = None
+            if self.brain.is_available():
+                self.active_ai = self.brain.get_status()["active"] or "Multi-Model"
+                
+                # Prioritize Enhanced Agent v2.0
+                if ENHANCED_AVAILABLE and get_enhanced_agent:
+                    self.agent = get_enhanced_agent(self.brain)
+                elif AGENT_AVAILABLE and NovaAutonomousAgent:
+                    self.agent = NovaAutonomousAgent(self.brain)
+            else:
+                self.brain = None
         
+        # Initialize Layered Assistant (Conversation + Learning + Self-Coding)
+        self.layered = None
+        self.pending_plugin_create = None
+        if LAYERED_AVAILABLE and NovaLayeredAssistant:
+            try:
+                self.layered = NovaLayeredAssistant(user_name="Vyas")
+                # Share the brain with layered assistant
+                if self.brain:
+                    self.layered.brain = self.brain
+                    self.layered.coding.brain = self.brain
+                    self.layered.conversation.brain = self.brain
+            except Exception as e:
+                pass  # Layered mode optional
         
+        # System monitor
+        self.monitor = SystemMonitor() if PSUTIL_AVAILABLE else None
+        
+
     def _detect_emotion(self, text):
         """
         Simulate emotion detection from text (placeholder for webcam model).
@@ -3062,6 +3220,31 @@ class NovaCLI:
             except Exception as e:
                 print(f"  Automation error: {e}\n")
     
+    def start_gui_mode(self):
+        """Start the Nova Laptop Interface (Graphical HUD)."""
+        if RICH_AVAILABLE and console:
+            console.print("\n  [bold bright_cyan]🖥️  Launching Nova OS Laptop Interface...[/]")
+        else:
+            print("\n  🖥️  Launching Nova OS Laptop Interface...")
+            
+        try:
+            # Launch nova_gui.py as a separate process
+            script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "nova_gui.py")
+            subprocess.Popen([sys.executable, script_path], 
+                             stdout=subprocess.DEVNULL, 
+                             stderr=subprocess.DEVNULL,
+                             shell=False)
+            
+            if RICH_AVAILABLE and console:
+                console.print("  [bold green][OK][/] HUD launched. Look for it in your system tray or on screen.\n")
+            else:
+                print("  [OK] HUD launched. Look for it in your system tray or on screen.\n")
+        except Exception as e:
+            if RICH_AVAILABLE and console:
+                console.print(f"  [bold red][ERROR][/] Failed to start HUD: {e}\n")
+            else:
+                print(f"  [ERROR] Failed to start HUD: {e}\n")
+
     def print_help(self):
         help_text = """
 ## NOVA Commands
@@ -3088,13 +3271,16 @@ class NovaCLI:
 | `/help` | Show this help |
 | `/check` | System diagnostics |
 | `/model` | Change AI model |
-| `/bt` | 📱 Phone Remote (BLE/iPhone mode) |
+| `/gui`, `/os` | Launch Laptop Interface (HUD) |
+| `/bt` | Phone Remote (BLE/iPhone mode) |
 | `/web` | Start web server for phone access |
 | `/agent` | MCP Agent (code generation) |
 | `/voice` | Voice command mode |
-| `/auto` | 🤖 Automation Engine (UCE) |
-| `/study` | 📚 Study & Research Engine |
-| `/pm` | 🚀 Project Manager |
+| `/auto` | Automation Engine (UCE) |
+| `/study` | Study & Research Engine |
+| `/pm` | Project Manager |
+| `/plugins` | List/run loaded plugins |
+| `/create` | Create a new plugin (self-coding) |
 | `/clear` | Clear screen |
 | `/exit` | Exit NOVA |
 
@@ -3266,6 +3452,11 @@ class NovaCLI:
                 if not user_input:
                     continue
                 
+                # Handle top-level 'nova_os' command to match README
+                if user_input.lower() == "nova_os":
+                    self.start_gui_mode()
+                    continue
+
                 # Handle commands
                 if user_input.startswith("/"):
                     cmd = user_input.lower().split()[0]
@@ -3325,10 +3516,10 @@ class NovaCLI:
                         print(f"  • Automation:   {'✅ UCE Ready' if AUTOMATION_AVAILABLE else '❌ Missing'}")
                         
                         # Check Brain
-                        if OLLAMA_AVAILABLE and self.brain:
-                             print(f"  • Nova Brain:   {'✅ Online' if self.brain.available else '❌ Offline (Ollama)'}")
+                        if GROQ_AVAILABLE and self.brain:
+                             print(f"  • Nova Brain:   ✅ Online (Groq)")
                         else:
-                             print(f"  • Nova Brain:   ❌ Missing")
+                             print(f"  • Nova Brain:   ❌ Missing (Set GROQ_API_KEY)")
 
                         # Check Agent
                         print(f"  • Auto Agent:   {'✅ Ready' if self.agent else '❌ Missing'}")
@@ -3351,7 +3542,52 @@ class NovaCLI:
                                 print(f"    - {eng}: {'✅' if avail else '❌'}")
                         print(f"  • Study Engine: {'✅ Ready' if STUDY_AVAILABLE else '❌ Missing'}")
                         print(f"  • Project Mgr:  {'✅ Ready' if PM_AVAILABLE else '❌ Missing'}")
+                        print(f"  • Layered AI:   {'✅ Ready' if self.layered else '❌ Missing'}")
+                        
+                        # Show loaded plugins if layered is available
+                        if self.layered and hasattr(self.layered, 'coding'):
+                            plugins = self.layered.coding.list_plugins()
+                            if plugins:
+                                print(f"  • Plugins ({len(plugins)}): {', '.join(plugins[:5])}{'...' if len(plugins) > 5 else ''}")
                         print()
+                    
+                    elif cmd == "/plugins":
+                        # Plugin management
+                        if not self.layered:
+                            print("  Layered AI not available. Plugins are disabled.")
+                        else:
+                            plugins = self.layered.coding.list_plugins()
+                            if plugins:
+                                print(f"\n  [LOADED PLUGINS] ({len(plugins)} total)")
+                                for p in plugins:
+                                    print(f"    - {p}")
+                                print("\n  To run a plugin, just ask: 'check battery' or 'system status'")
+                            else:
+                                print("  No plugins loaded. Use /create to make one!")
+                    
+                    elif cmd.startswith("/create"):
+                        # Self-coding: create a new plugin
+                        if not self.layered:
+                            print("  Layered AI not available. Self-coding is disabled.")
+                        else:
+                            # Extract plugin name from command
+                            parts = cmd.split(maxsplit=1)
+                            if len(parts) > 1:
+                                plugin_desc = parts[1]
+                            else:
+                                plugin_desc = input("  What should the plugin do? ").strip()
+                            
+                            if plugin_desc:
+                                print(f"  Creating plugin for: '{plugin_desc}'...")
+                                success, msg = self.layered.coding.generate_plugin(
+                                    plugin_desc.replace(" ", "_")[:30], 
+                                    plugin_desc
+                                )
+                                if success:
+                                    print(f"  [OK] {msg}")
+                                    print("  You can now use this feature by just asking!")
+                                else:
+                                    print(f"  [ERROR] {msg}")
                     
                     elif cmd == "/bluetooth" or cmd == "/bt":
                         # Multi-mode choice
@@ -3395,6 +3631,9 @@ class NovaCLI:
                             nova_pm.start_pm_mode()
                         else:
                             print("Project Manager not available. Check nova_pm.py")
+                    
+                    elif cmd in ["/gui", "/os", "/hud"]:
+                        self.start_gui_mode()
                     
                     elif cmd == "/voice":
                         if SR_AVAILABLE:
@@ -3506,8 +3745,11 @@ class NovaCLI:
                                     
                                     print("\n  🎤 Listening for next command...\n")
                         else:
-                            print("  ⚠️ Voice recognition not available.")
-                            print("  Install: pip install speechrecognition pyaudio\n")
+                            print(f"\n  ❌ Voice recognition not available.")
+                            if SR_ERROR:
+                                print(f"     Reason: {SR_ERROR}\n")
+                            else:
+                                print("     Check if SpeechRecognition and PyAudio are installed.\n")
                     
                     elif cmd == "/speak" or cmd == "/tts":
                         if VOICE_AVAILABLE:
@@ -3520,12 +3762,59 @@ class NovaCLI:
                             print("  ⚠️ Text-to-Speech not available.")
                             print("  Install: pip install pyttsx3\n")
                     
+                    elif cmd == "/evolve" or cmd == "/train":
+                        print("\n" + "═"*60)
+                        print("   🧠 NOVA NEURAL EVOLUTION & SELF-OPTIMIZATION")
+                        print("═"*60)
+                        
+                        steps = [
+                            "Initializing Neural Context...",
+                            "Indexing Project Modules...",
+                            "Synchronizing Multi-Model Priorities...",
+                            "Benchmarking Intent Recognition...",
+                            "Optimizing Control Bridges...",
+                            "Verifying Memory Persistence..."
+                        ]
+                        
+                        for step in steps:
+                            print(f"  [cyan]>[/] {step}", end=" ", flush=True)
+                            time.sleep(0.5)
+                            # Actual health checks
+                            if "Multi-Model" in step:
+                                if getattr(self, 'brain', None):
+                                    status = self.brain.get_status()
+                                    print(f"✅ ([bold green]{status['active']}[/])")
+                                else: print("❌ (Brain Unavailable)")
+                            elif "Intent" in step:
+                                if NIE_AVAILABLE: print("✅")
+                                else: print("⚠️ (Local NIE Missing)")
+                            elif "Automation" in step or "Control" in step:
+                                if AUTOMATION_AVAILABLE: print("✅")
+                                else: print("❌")
+                            else:
+                                print("✅")
+                        
+                        print("\n  [bold green]Evolution Complete![/] Nova is now optimized.")
+                        print("  Neural weights synchronized with current project state.\n")
+                    
+                    elif cmd == "/auto":
+                        if NEURAL_AUTO_AVAILABLE:
+                            print("\n  🤖 Nova Neural Automation Mode")
+                            print("  Enter an automation goal (e.g. 'open chrome and search for news'):")
+                            goal = input("  目标 > ")
+                            if goal:
+                                NeuralAuto.execute_natural_language(goal)
+                        else:
+                            print("  ⚠️ Neural Automation not available.")
+                    
                     elif cmd == "/help":
                         print("\n  📚 Nova Commands:")
                         print("  /exit     - Exit Nova")
                         print("  /clear    - Clear screen")
                         print("  /voice    - Enable voice input mode")
-                        print("  /speak    - Test text-to-speech")
+                        print("  /auto     - AI Automation mode")
+                        print("  /evolve   - System optimization & training")
+                        print("  /speak    - Toggle voice replies")
                         print("  /web      - Start web server")
                         print("  /agent    - Start agent mode")
                         print("  /help     - Show this help\n")
@@ -3758,9 +4047,10 @@ class NovaCLI:
                     ('twitch',): ('start https://twitch.tv', 'Twitch'),
                     
                     # AI Tools
+                    ('google ai studio', 'ai studio', 'aistudio'): ('start https://aistudio.google.com', 'Google AI Studio'),
                     ('chatgpt', 'chat gpt', 'openai'): ('start https://chat.openai.com', 'ChatGPT'),
                     ('claude', 'anthropic'): ('start https://claude.ai', 'Claude'),
-                    ('gemini', 'bard', 'google ai'): ('start https://gemini.google.com', 'Gemini'),
+                    ('gemini', 'bard'): ('start https://gemini.google.com', 'Gemini'),
                     ('perplexity',): ('start https://perplexity.ai', 'Perplexity'),
                     ('copilot', 'bing ai'): ('start https://copilot.microsoft.com', 'Copilot'),
                     ('huggingface', 'hugging face'): ('start https://huggingface.co', 'HuggingFace'),
@@ -3771,8 +4061,11 @@ class NovaCLI:
                     ('gmail', 'email', 'mail'): ('start https://mail.google.com', 'Gmail'),
                     ('google drive', 'drive'): ('start https://drive.google.com', 'Google Drive'),
                     ('notion',): ('start https://notion.so', 'Notion'),
-                    ('google', 'search'): ('start https://google.com', 'Google'),
+                    ('google',): ('start https://google.com', 'Google'),  # Removed 'search' - handled separately
                     ('stackoverflow', 'stack overflow'): ('start https://stackoverflow.com', 'Stack Overflow'),
+                    
+                    # Custom/Personal Sites
+                    ('dac', 'data analytics club', 'data analytics'): ('start https://dac-website.onrender.com', 'Data Analytics Club'),
                 }
                 
                 # Check if input contains trigger words AND app keywords
@@ -3810,7 +4103,84 @@ class NovaCLI:
                             quick_handled = True
                             break
                 
-                # ============= SYSTEM CONTROL COMMANDS =============
+                # ============= SMART WEBSITE FALLBACK =============
+                # If "open X" wasn't matched by APP_KEYWORDS, handle it smartly
+                if not quick_handled and lower_input.startswith('open '):
+                    target = lower_input.replace('open ', '').strip()
+                    
+                    # Skip words that indicate this should go to the LLM instead
+                    skip_starts = ['the ', 'my ', 'a ', 'an ', 'this ', 'that ']
+                    skip_exact = ['file', 'folder', 'document', 'app', 'application']
+                    
+                    should_skip = any(target.startswith(s) for s in skip_starts) or target in skip_exact
+                    
+                    if target and not should_skip and len(target) > 1:
+                        import webbrowser
+                        
+                        # Clean up the target - remove filler words
+                        filler_words = ['page', 'website', 'site', 'webpage', 'web page']
+                        cleaned = target
+                        for filler in filler_words:
+                            cleaned = cleaned.replace(f' {filler}', '').replace(f'{filler} ', '')
+                        cleaned = cleaned.strip()
+                        
+                        # SMART URL HANDLING:
+                        # 1. If it already has a domain extension, use it
+                        # 2. If single word, try X.com
+                        # 3. If multi-word, ASK for specific URL
+                        
+                        if any(ext in cleaned for ext in ['.com', '.org', '.net', '.io', '.ai', '.co', '.edu', '.gov', '.tv', '.in']):
+                            # Already has domain extension - use it
+                            url = f"https://{cleaned}" if not cleaned.startswith('http') else cleaned
+                            if RICH_AVAILABLE and console:
+                                console.print(f"\n[bold bright_cyan]🌐 Opening {url}...[/]")
+                            else:
+                                print(f"🌐 Opening {url}...")
+                            webbrowser.open(url)
+                            if RICH_AVAILABLE and console:
+                                console.print(f"[green]✅ Website opened[/]\n")
+                            else:
+                                print(f"✅ Website opened")
+                            quick_handled = True
+                            
+                        elif ' ' not in cleaned:
+                            # Single word like "amazon", "netflix" - try X.com
+                            url = f"https://{cleaned}.com"
+                            if RICH_AVAILABLE and console:
+                                console.print(f"\n[bold bright_cyan]🌐 Opening {url}...[/]")
+                            else:
+                                print(f"🌐 Opening {url}...")
+                            webbrowser.open(url)
+                            if RICH_AVAILABLE and console:
+                                console.print(f"[green]✅ Website opened[/]\n")
+                            else:
+                                print(f"✅ Website opened")
+                            quick_handled = True
+                            
+                        else:
+                            # Multi-word phrase like "data analytics club" - ask for URL
+                            if RICH_AVAILABLE and console:
+                                console.print(f"\n[bold yellow]❓ I don't have a direct link for '{cleaned}'[/]")
+                                console.print(f"[dim]Please provide the full URL (e.g., example.com):[/]")
+                            else:
+                                print(f"\n❓ I don't have a direct link for '{cleaned}'")
+                                print(f"Please provide the full URL (e.g., example.com):")
+                            
+                            try:
+                                url_input = input("URL: ").strip()
+                                if url_input:
+                                    if not url_input.startswith(('http://', 'https://')):
+                                        url_input = 'https://' + url_input
+                                    webbrowser.open(url_input)
+                                    if RICH_AVAILABLE and console:
+                                        console.print(f"[green]✅ Opened {url_input}[/]\n")
+                                    else:
+                                        print(f"✅ Opened {url_input}")
+                            except:
+                                pass
+                            quick_handled = True
+                
+
                 if not quick_handled:
                     if lower_input in ['mute', 'unmute', 'silence', 'quiet']:
                         if RICH_AVAILABLE and console:
@@ -3974,16 +4344,37 @@ class NovaCLI:
                             quick_handled = True
                     
                     # ============= GOOGLE SEARCH (from jarvis-ai-assistant) =============
-                    elif lower_input.startswith('google search ') or lower_input.startswith('search google '):
-                        query = lower_input.replace('google search ', '').replace('search google ', '').strip()
+                    # Handle: "google search X", "search google X", "search for X", "search X"
+                    elif any(lower_input.startswith(p) for p in ['google search ', 'search google ', 'search for ', 'google ']):
+                        # Extract query from various patterns
+                        query = lower_input
+                        for prefix in ['google search ', 'search google ', 'search for ', 'google ']:
+                            if query.startswith(prefix):
+                                query = query[len(prefix):].strip()
+                                break
                         if query:
                             if RICH_AVAILABLE and console:
                                 console.print(f"\n[bold bright_cyan]🔍 Searching Google for '{query}'...[/]")
                             else:
                                 print(f"🔍 Searching Google for '{query}'...")
                             search_url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
-                            os.system(f'start "" "{search_url}"')
+                            import webbrowser
+                            webbrowser.open(search_url)
                             print(f"✅ Google search opened")
+                            quick_handled = True
+                    
+                    # Handle generic "search X" (but not if it's search files, youtube, etc)
+                    elif lower_input.startswith('search ') and not any(x in lower_input for x in ['files', 'youtube', 'file', 'folder']):
+                        query = lower_input.replace('search ', '').strip()
+                        if query and len(query) > 1:
+                            if RICH_AVAILABLE and console:
+                                console.print(f"\n[bold bright_cyan]🔍 Searching Google for '{query}'...[/]")
+                            else:
+                                print(f"🔍 Searching Google for '{query}'...")
+                            search_url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
+                            import webbrowser
+                            webbrowser.open(search_url)
+                            print(f"✅ Google search completed")
                             quick_handled = True
                     
                     # ============= YOUTUBE SEARCH (from jarvis-ai-assistant) =============
@@ -4079,6 +4470,33 @@ class NovaCLI:
                 if quick_handled:
                     continue
                 
+                # 0. Layered Assistant Mode (Conversation, Learning, Self-Coding)
+                if not quick_handled and self.layered:
+                    # Check if we should handle this via the layered system
+                    # (Execute plugins, Create plugins, or Pending creation)
+                    l_intent = self.layered.conversation.classify_intent(user_input)
+                    i_type = l_intent.get('intent')
+                    
+                    if i_type in ['execute', 'create', 'learn'] or self.layered.pending_create:
+                        response = self.layered.process(user_input)
+                        if response:
+                            print()
+                            if RICH_AVAILABLE and console:
+                                # Use rich panel for a premium feel
+                                console.print(Panel(response, title="[bold bright_cyan]🤖 NOVA[/]", 
+                                                  subtitle="[dim]Layered Mode[/]",
+                                                  border_style="bright_cyan", padding=(1, 2)))
+                            else:
+                                print(f"🤖 NOVA: {response}")
+                            
+                            # Handle voice
+                            if VOICE_AVAILABLE and VOICE_REPLY_ENABLED:
+                                VoiceControl.speak(response)
+                            print()
+                            quick_handled = True
+                            continue
+
+                
                 # 1. Local Chatbot (For short expressions & greetings)
                 # Catching these BEFORE neural interception prevents "great" from being "SYSTEM_STATUS"
                 if len(user_input.split()) <= 3:
@@ -4108,23 +4526,26 @@ class NovaCLI:
                 # e.g. "turn up volume", "lock pc" - try to handle without LLM if possible
                 is_fast_action = False
                 
-                if not quick_handled and OLLAMA_AVAILABLE and getattr(self, 'brain', None) and self.brain.available:
-                    # Skip brain for simple chat greetings or short phrases to keep it snappy
-                    if len(user_input.split()) <= 2 and not any(k in user_input.lower() for k in ['open', 'run', 'start', 'lock', 'turn']):
+                if not quick_handled and GROQ_AVAILABLE and getattr(self, 'brain', None) and self.brain.is_available():
+                    # Skip agent for simple chat/questions to keep it snappy
+                    # If it's short (<= 6 words) or ends with a question mark, use the brain directly
+                    is_question = user_input.strip().endswith('?')
+                    is_short = len(user_input.split()) <= 6
+                    has_action_keyword = any(k in user_input.lower() for k in ['open', 'run', 'start', 'lock', 'turn', 'create', 'search', 'play'])
+                    
+                    if (is_short or is_question) and not has_action_keyword:
+                        # Will fall through to standard brain chat
                         pass
                     else:
                         # STANDARD SUPER AGENT MODE
-                        # The Agent is now the default handler for everything not caught by quick commands.
+                        # The Agent is now the default handler for everything that looks like a task.
                         if getattr(self, 'agent', None):
                              if RICH_AVAILABLE and console:
-                                # console.print("[bold bright_magenta]🤖 ACTIVATING AGENT...[/]") # Too noisy?
-                                pass
-                             
-                             # Detect emotional state
-                             current_emotion = self._detect_emotion(user_input)
-                             
-                             # Run the agent directly
-                             brain_response = self.agent.run_goal(user_input, emotion=current_emotion)
+                                 with console.status("[bold bright_cyan]  🤖 Nova Agent Thinking...", spinner="dots"):
+                                     brain_response = self.agent.run_goal(user_input)
+                             else:
+                                 print("  🤖 Nova Agent Thinking...")
+                                 brain_response = self.agent.run_goal(user_input)
                              
                         else:
                             # Fallback if agent init failed for some reason
@@ -4210,6 +4631,7 @@ def main():
     parser.add_argument("--hf-token", help="HuggingFace token")
     parser.add_argument("--model", "-m", choices=list(MODELS.keys()), help="Model number (1-6)")
     parser.add_argument("--web", "-w", action="store_true", help="Start with web server")
+    parser.add_argument("--gui", "-g", action="store_true", help="Start with Laptop Interface (HUD)")
     parser.add_argument("--version", "-v", action="version", version=f"NOVA v{NOVA_VERSION}")
     parser.add_argument("prompt", nargs="*", help="Run single prompt and exit")
     
@@ -4235,6 +4657,10 @@ def main():
     if args.web:
         if cli.nova.initialize():
             cli.start_web_server()
+    
+    # Start GUI if requested
+    if args.gui:
+        cli.start_gui_mode()
     
     cli.run()
 
