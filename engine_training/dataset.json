@@ -862,5 +862,53 @@
   {
     "text": "please go home",
     "label": 4
+  },
+  {
+    "text": "roast me",
+    "label": 8
+  },
+  {
+    "text": "roast me!",
+    "label": 8
+  },
+  {
+    "text": "can you roast me",
+    "label": 8
+  },
+  {
+    "text": "please roast me",
+    "label": 8
+  },
+  {
+    "text": "say something mean",
+    "label": 8
+  },
+  {
+    "text": "insult me",
+    "label": 8
+  },
+  {
+    "text": "give me a roast",
+    "label": 8
+  },
+  {
+    "text": "roast this person",
+    "label": 8
+  },
+  {
+    "text": "destroy me with a roast",
+    "label": 8
+  },
+  {
+    "text": "be savage",
+    "label": 8
+  },
+  {
+    "text": "roast time",
+    "label": 8
+  },
+  {
+    "text": "roast",
+    "label": 8
   }
 ]

@@ -19,13 +19,17 @@ class NeuralIntentEngine:
         1: "VOLUME_UP",
         2: "VOLUME_DOWN",
         3: "SYSTEM_STATUS",
-        4: "UNKNOWN"
+        4: "UNKNOWN",
+        5: "SHUTDOWN_SYSTEM",
+        6: "RESTART_SYSTEM",
+        7: "SLEEP_SYSTEM",
+        8: "ROAST_USER"
     }
     
     def __init__(self, model_path="engine_core/model_weights.npz"):
         self.tokenizer = SimpleWordTokenizer()
         # Synchronized vocab_size with Gold Standard Training
-        self.model = TinyTransformerClassifier(vocab_size=1000) 
+        self.model = TinyTransformerClassifier(vocab_size=1000, num_classes=9) 
         
         # Load Vocab if exists
         vocab_path = os.path.join("workspace", "engine_core", "vocab.json")

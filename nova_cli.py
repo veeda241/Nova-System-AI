@@ -3373,6 +3373,12 @@ class NovaCLI:
              res['confidence'] = 1.0
              intent = "SLEEP_SYSTEM"
              confidence = 1.0
+        elif 'roast me' in lower_input or 'roast' in lower_input or 'insult me' in lower_input or 'be savage' in lower_input:
+             res['intent_name'] = "ROAST_USER"
+             res['intent_id'] = 8
+             res['confidence'] = 1.0
+             intent = "ROAST_USER"
+             confidence = 1.0
 
         # We only take over if we are very confident and it's a known system intent
         if confidence >= 0.75 and intent != "UNKNOWN":
@@ -3382,6 +3388,11 @@ class NovaCLI:
                 trigger_words = ['status', 'info', 'health', 'report', 'stats']
                 if not any(word in user_input.lower() for word in trigger_words):
                     return False
+            
+            # ROAST_USER is harmless fun - execute immediately without permission
+            if intent == "ROAST_USER":
+                PermissionGate.execute_intent(res['intent_id'])
+                return True
                     
             if RICH_AVAILABLE and console:
                 # Beautiful Neural Panel

@@ -18,7 +18,7 @@ def train():
     
     tokenizer = SimpleWordTokenizer()
     # 2. Init Model with stable vocab size
-    model = TinyTransformerClassifier(vocab_size=500) 
+    model = TinyTransformerClassifier(vocab_size=1000, num_classes=9) 
     
     # 3. Training Loop (SGD)
     epochs = 100

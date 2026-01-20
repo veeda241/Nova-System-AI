@@ -12,7 +12,7 @@ from engine_core.tokenizer import SimpleWordTokenizer
 def check():
     print("NIE Health Check...")
     tokenizer = SimpleWordTokenizer()
-    model = TinyTransformerClassifier(vocab_size=1000)
+    model = TinyTransformerClassifier(vocab_size=1000, num_classes=9)
     
     text = "lock the computer"
     ids = tokenizer.encode(text)

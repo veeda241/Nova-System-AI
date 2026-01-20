@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "c:\hackathon\Gemini_CLI\Nova-System-AI\workspace\engine_training\train.py", line 71, in <module>
+    train()
+  File "c:\hackathon\Gemini_CLI\Nova-System-AI\workspace\engine_training\train.py", line 27, in train
+    print(f"\U0001f680 Training Neural Intent Engine (Prototype Alignment) on {len(data)} samples...", flush=True)
+  File "C:\Users\Vyas S\AppData\Local\Programs\Python\Python310\lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+UnicodeEncodeError: 'charmap' codec can't encode character '\U0001f680' in position 0: character maps to <undefined>
