@@ -1,0 +1,62 @@
+# NOVA Inference Configuration
+# =============================
+
+# Model settings
+model:
+  name: "nova"
+  provider: "ollama"
+  context_length: 8192
+  max_tokens: 2048
+
+# Generation parameters
+generation:
+  temperature: 0.3
+  top_p: 0.9
+  top_k: 40
+  repeat_penalty: 1.1
+  
+# Tool execution
+tools:
+  enabled: true
+  max_iterations: 10
+  timeout_per_tool: 30
+  
+# Available tools
+available_tools:
+  - name: "create_python_file"
+    enabled: true
+    description: "Create Python files in workspace"
+    
+  - name: "execute_python_file"
+    enabled: true
+    description: "Execute Python files"
+    timeout: 30
+    
+  - name: "execute_python_code"
+    enabled: true
+    description: "Execute Python code directly"
+    timeout: 30
+    
+  - name: "read_file"
+    enabled: true
+    description: "Read file contents"
+    
+  - name: "list_files"
+    enabled: true
+    description: "List files in workspace"
+    
+  - name: "search_files"
+    enabled: true
+    description: "Search for files by pattern"
+
+# Response formatting
+response:
+  format: "markdown"
+  include_tool_output: true
+  max_output_length: 5000
+
+# Caching
+cache:
+  enabled: true
+  ttl: 3600
+  max_size: 100

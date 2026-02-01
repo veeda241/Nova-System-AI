@@ -71,7 +71,7 @@ class KnowledgeDB:
     name = "knowledge_db"
     
     def __init__(self, db_path=None):
-        self.db_path = db_path or os.path.join(os.path.dirname(__file__), "..", "nova_knowledge.db")
+        self.db_path = db_path or os.path.join(os.path.dirname(__file__), "..", "data", "nova_knowledge.db")
         self._init_db()
     
     def _init_db(self):

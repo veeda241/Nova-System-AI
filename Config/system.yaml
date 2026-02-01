@@ -1,0 +1,89 @@
+# NOVA System Configuration
+# =========================
+
+# Project metadata
+project:
+  name: "NOVA System AI"
+  version: "2.0"
+  description: "Autonomous AI Agent with MCP Tools"
+
+# Ollama configuration (primary)
+ollama:
+  url: "http://localhost:11434"
+  default_model: "nova"
+  fallback_model: "qwen2.5-coder"
+  timeout: 300
+  options:
+    temperature: 0.3
+    top_p: 0.9
+    num_ctx: 8192
+    num_predict: 2048
+
+# API fallbacks (optional - only used if Ollama unavailable)
+groq:
+  enabled: false
+  model: "llama-3.1-70b-versatile"
+  # api_key loaded from .env
+
+gemini:
+  enabled: false
+  model: "gemini-1.5-pro"
+  # api_key loaded from .env
+
+# Paths
+paths:
+  workspace: "workspace"
+  data: "data"
+  logs: "logs"
+  checkpoints: "workspace/checkpoints"
+
+# TTS (Text-to-Speech) Configuration - Nova Voice Engine
+tts:
+  provider: "soprano"  # Options: soprano, piper, powershell
+  enabled: true
+  
+  # Nova Voice Personality - Female AI Assistant
+  voice:
+    name: "Nova"
+    gender: "female"
+    greeting: "Hello sir, Nova at your service."
+    ready: "Nova is ready to assist you, sir."
+    thinking: "Processing your request, sir."
+    error: "I encountered an issue. Let me try again, sir."
+    goodbye: "Goodbye sir. Nova will be waiting."
+    wake_response: "Yes sir?"
+    voice_mode_start: "Hello sir, Nova at your service."
+    voice_mode_end: "Voice mode deactivated. Call me anytime, sir."
+  
+  # Soprano Model Settings (ekwek/Soprano-1.1-80M)
+  soprano:
+    model: "ekwek/Soprano-1.1-80M"
+    device: "auto"  # auto, cpu, cuda, mps
+    temperature: 0.3  # Lower = more consistent voice
+    top_p: 0.95
+    cache_size_mb: 100
+    decoder_batch_size: 1
+    
+  # Piper fallback settings  
+  piper:
+    model_path: "interface/models/piper/en_US-lessac-low.onnx"
+  
+# Logging
+logging:
+  level: "INFO"
+  file: "logs/system.log"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# Security
+security:
+  sandbox_enabled: true
+  allowed_paths:
+    - "workspace"
+    - "data"
+  blocked_patterns:
+    - "os.system"
+    - "subprocess.Popen"
+    - "eval("
+    - "exec("
+    - "rm -rf"
+    - "del /f"
