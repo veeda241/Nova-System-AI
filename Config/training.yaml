@@ -1,0 +1,65 @@
+# NOVA Training Configuration
+# ============================
+
+# Neural Intent Engine settings
+intent_engine:
+  vocab_size: 5000
+  embedding_dim: 128
+  hidden_dim: 256
+  num_classes: 10
+  learning_rate: 0.001
+  batch_size: 32
+  epochs: 100
+
+# Intent classes
+intent_classes:
+  - CHAT
+  - FILE_OPERATION
+  - CODE_GENERATION
+  - SYSTEM_COMMAND
+  - WEB_SEARCH
+  - CALCULATION
+  - REMINDER
+  - APP_LAUNCH
+  - SETTINGS
+  - UNKNOWN
+
+# Training data paths
+data:
+  training_data: "data/processed/training.json"
+  validation_data: "data/processed/validation.json"
+  vocab_file: "engine_core/vocab.json"
+
+# Model checkpoints
+checkpoints:
+  save_dir: "workspace/checkpoints"
+  save_frequency: 10  # epochs
+  keep_last: 5
+
+# Optimization
+optimization:
+  optimizer: "adam"
+  weight_decay: 0.0001
+  gradient_clip: 1.0
+  scheduler: "cosine"
+  warmup_steps: 100
+
+# Evaluation
+evaluation:
+  eval_frequency: 5  # epochs
+  metrics:
+    - accuracy
+    - f1_score
+    - confusion_matrix
+
+# Logging
+logging:
+  log_dir: "logs"
+  log_frequency: 10  # steps
+  tensorboard: false
+
+# Self-optimization (experimental)
+self_optimization:
+  enabled: false
+  auto_tune: false
+  feedback_learning: false

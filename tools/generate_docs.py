@@ -126,7 +126,7 @@ def add_toc(story, styles):
         ("3. System Architecture", 15),
         ("4. Core Components", 25),
         ("   4.1 nova_ble.py - BLE Bridge Server", 26),
-        ("   4.2 nova_cli.py - Main CLI", 35),
+        ("   4.2 interface/cli.py - Main CLI", 35),
         ("   4.3 Agent System", 42),
         ("5. Mobile User Interface", 50),
         ("   5.1 UI Structure", 51),
@@ -200,21 +200,21 @@ def add_project_overview(story, styles):
     
     structure = """
     Nova-System-AI/
-    ├── nova_cli.py          # Main CLI application (173KB, 3789 lines)
-    ├── nova_ble.py          # BLE bridge server (51KB, 1217 lines)
-    ├── nova_bluetooth.py    # Classic Bluetooth (14KB)
-    ├── nova.py              # Core engine (19KB)
-    ├── nova.bat             # Windows launcher
+    ├── interface/           # User Interfaces
+    │   ├── cli.py           # Main CLI application
+    │   ├── api.py           # REST API server
+    │   └── gui.py           # PyQt6 GUI
     │
     ├── agent/               # MCP Agent System
-    │   ├── agent.py         # Base agent
-    │   ├── enhanced_agent.py # Enhanced agent
+    │   ├── claude_mcp_agent.py # Ollama-powered MCP agent
+    │   ├── planner.py       # Task planning
+    │   ├── executor.py      # Task execution
     │   └── tools.py         # Agent tools
     │
-    ├── Dockerfile           # Docker configuration
-    ├── docker-compose.yml   # Docker Compose
-    ├── requirements.txt     # Dependencies
-    └── app_cache.json       # App paths cache
+    ├── nova_system/         # Core AI logic
+    ├── Config/              # Configuration files
+    ├── tools/               # Utility scripts
+    └── workspace/           # Sandboxed execution
     """
     story.append(Paragraph(structure.replace('\n', '<br/>'), styles['CodeBlock']))
     
@@ -355,8 +355,8 @@ def add_core_components(story, styles):
     
     story.append(PageBreak())
     
-    # 4.2 nova_cli.py
-    story.append(Paragraph("4.2 nova_cli.py - Main CLI Application", styles['Section']))
+    # 4.2 interface/cli.py
+    story.append(Paragraph("4.2 interface/cli.py - Main CLI Application", styles['Section']))
     story.append(Paragraph("""
     The main command-line interface provides an interactive REPL (Read-Eval-Print Loop) 
     for direct interaction with Nova. At 173KB and 3789 lines, it is the largest 

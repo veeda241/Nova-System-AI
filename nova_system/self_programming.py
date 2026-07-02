@@ -344,7 +344,7 @@ class SelfProgrammingEngine:
         }
         
         # Quick analysis of main files
-        important_files = ["nova_cli.py", "nova_agent.py", "nova_automation.py"]
+        important_files = ["interface/cli.py", "nova_system/nova_agent.py", "nova_system/nova_automation.py"]
         
         for filename in important_files:
             code = self.read_own_source(filename)

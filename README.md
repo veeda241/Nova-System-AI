@@ -17,6 +17,37 @@ NOVA has evolved from a simple chatbot into a **Multi-Model Autonomous Agent**. 
 
 - **🧠 Multi-Model Neural Bridge**: Automatic failover between **Groq (Llama-3 70B)**, **Gemini 1.5**, **OpenAI**, and **Ollama**.
 - **🤖 Autonomous MCP Agent**: Fully capable of planning, generating code, and executing tasks like opening apps or searching the web without human intervention.
+## 🚀 New Architecture: SimpliSmart v2.1
+
+Nova has been upgraded to the **SimpliSmart Architecture** for faster local intent detection and deeper global logic.
+
+```
+[User Voice]
+   ↓
+SimpliSmart (STT + Wake Word + UI)
+   ↓
+Nova API (/query)
+   ↓
+Nova Orchestrator
+   ↓
+ ┌──────────────┬──────────────┐
+ │ Intent Engine│ Claude MCP    │
+ │ (fast local) │ (deep logic)  │
+ └──────────────┴──────────────┘
+   ↓
+Tool Execution (Nova MCP Tools)
+   ↓
+Final Answer Text
+   ↓
+SimpliSmart TTS Voice
+```
+
+### 🧠 Model Requirements (Space Optimized)
+To preserve laptop space, we use only two core models:
+1. **Llama 3.2 (3B)**: Deep Logic & Local Reasoning.
+2. **Qwen 2.5 (0.5B)**: Fast Intent Classification (Neural Core).
+
+Run `nova_unified_v2.bat` to launch the full stack.
 - **🖥️ Nova OS (Laptop Interface)**: A premium, Jarvis-inspired graphical HUD with real-time system stats, animations, and "Eye of Nova" vision analysis.
 - **⚡ Unified Control Engine (UCE)**: Premium automation layer with Human-Action Simulation (HASE) and App Control Layers (AWCL).
 - **📈 Neural Evolution**: A self-optimization engine that allow's Nova to "train" itself on your workflows.
@@ -40,7 +71,8 @@ pip install -r requirements.txt
 
 ### 3. Launch Nova
 ```bash
-python nova_cli.py
+python interface/cli.py
+# Or use the 'nova' command if configured
 ```
 
 ---
