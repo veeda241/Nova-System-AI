@@ -9,6 +9,7 @@ from .. import config
 from .base import Engine, EngineError, is_transient
 from .gemini import GeminiEngine
 from .groq import GroqEngine
+from .huggingface import HuggingFaceEngine
 from .ollama import OllamaEngine
 from .openai import OpenAIEngine
 
@@ -16,6 +17,7 @@ __all__ = ["Engine", "EngineError", "Registry", "build_registry", "get_registry"
 
 FACTORIES = {
     "ollama": OllamaEngine,
+    "hf": HuggingFaceEngine,
     "groq": GroqEngine,
     "gemini": GeminiEngine,
     "openai": OpenAIEngine,
@@ -106,7 +108,8 @@ class Registry:
             engine = self.get(name)
         else:
             engine = self.active or self.select("auto")
-        return {"engine": engine.name, "current": engine.model, "models": engine.list_models()}
+        models = engine.list_models()
+        return {"engine": engine.name, "current": engine.model, "models": models, "note": engine.list_note}
 
     def status(self) -> List[Dict[str, object]]:
         active = self.active.name if self.active else None

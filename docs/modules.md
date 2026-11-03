@@ -6,7 +6,7 @@ and the failure mode it was written to prevent. Paths are relative to the repo r
 ```text
 src/nova/{__init__,__main__,config,intelligence,security,skills,voice}.py
 src/nova/cli/{app,ui}.py
-src/nova/engine/{base,ollama,groq,gemini,openai}.py
+src/nova/engine/{base,ollama,huggingface,groq,gemini,openai}.py
 src/nova/agents/{__init__,react}.py
 src/nova/tools/{__init__,files,shell,system}.py
 src/nova/memory/{__init__,store,kb}.py
@@ -25,16 +25,18 @@ is how the suite runs against the source tree instead of an installed copy.
 
 ## Configuration
 
-**`src/nova/config.py`** (113 lines) — every path, the `.env` reader and the settings file.
-`_find_home()` (:23) walks up from the cwd looking for a project marker, so `nova` behaves
-the same whether you launch it from the repo root or a subdirectory; `NOVA_HOME` (:30) and
-`NOVA_WORKSPACE` (:32) let a caller relocate state, which is exactly how the tests get an
-isolated sandbox. `load_env()` (:45) reads `.env` from three candidate locations and never
+**`src/nova/config.py`** (125 lines) — every path, the `.env` reader and the settings file.
+`_find_home()` (:25) walks up from the cwd looking for a project marker, so `nova` behaves
+the same whether you launch it from the repo root or a subdirectory; `NOVA_HOME` (:32) and
+`NOVA_WORKSPACE` (:34) let a caller relocate state, which is exactly how the tests get an
+isolated sandbox. `load_env()` (:52) reads `.env` from three candidate locations and never
 overwrites a variable that already exists — your real shell environment wins over a stale
-file. Settings are `DEFAULTS` (:10) → `.nova/settings.json` (:80) → process `OVERRIDES`
-(:100); `override()` is what `--engine/--mode/--max-steps` write to, so a flag changes this
-run without silently rewriting the user's saved preferences. `api_key_present()` (:106) and
-`mask()` (:110) exist so nothing downstream has to handle a raw secret to report whether one
+file. Settings resolve through `get()` (:101) in a fixed order — `OVERRIDES` (:49) from a
+flag, then the environment for the keys named in `ENV_SETTINGS` (:42) (`OLLAMA_URL`,
+`OLLAMA_MODEL`, `HF_MODEL`, `HF_MAX_TOKENS`), then `.nova/settings.json` (:87), then
+`DEFAULTS` (:10) — so a setup script can pin an endpoint without rewriting anyone's saved
+preferences. `api_key_present()` (:118) and
+`mask()` (:122) exist so nothing downstream has to handle a raw secret to report whether one
 is set.
 
 ## Intelligence (the prompt contract)
@@ -53,13 +55,13 @@ loop, which is why `nova validate` can be trusted.
 
 ## Engine (model transport)
 
-**`src/nova/engine/base.py`** (125 lines) — the `Engine` ABC (`probe`, `complete`,
+**`src/nova/engine/base.py`** (127 lines) — the `Engine` ABC (`probe`, `complete`,
 `list_models`, `is_local`, `priority`) plus the shared HTTP layer. `scrub()` (:20) rewrites
 `?key=`, `Bearer`, `AIza…`, `sk-…`, `gsk_…`, and `EngineError.__str__` (:16) applies it
 automatically, so a leak would have to bypass the exception type itself.
-`is_transient()` (:35) + `TRANSIENT_MARKERS` (:32) encode the retry policy: 429/5xx/
+`is_transient()` (:36) + `TRANSIENT_MARKERS` (:33) encode the retry policy: 429/5xx/
 "high demand"/"rate limit"/"timed out"/"cannot reach" are worth another attempt; everything
-else is a configuration error and switching is better than waiting. `post_json()` (:83) turns
+else is a configuration error and switching is better than waiting. `post_json()` (:85) turns
 every transport exception into a scrubbed `EngineError` and appends an actionable hint per
 status code (404 → `nova engine models`, 401 → check `.env`, 429 → wait or switch).
 
@@ -70,21 +72,36 @@ prefers llama/mistral/gemma/qwen families when no model is configured, so a fres
 finds something sane on its own. `complete()` (:48) uses `/api/chat` non-streaming with the
 temperature the agent asked for.
 
+**`src/nova/engine/huggingface.py`** (92) — priority 2, and the reason Nova is not tied to
+the laptop it was installed on: `POST https://router.huggingface.co/v1/chat/completions` with
+`Authorization: Bearer HF_TOKEN`, OpenAI-shaped body and response, so no SDK and no local
+weights. Model ids carry a provider policy suffix (`:fastest` default, `:cheapest`,
+`:preferred`, or an exact provider) because the router serves one id through many hosts.
+`probe()` (:36) fails before any socket opens when `HF_TOKEN` is missing and names the exact
+fine-grained permission the token needs. `list_models()` (:43) reads `/v1/models` and, when
+the router serves more than `MODEL_LIST_LIMIT` (:20) ids, sets `list_note` — which
+`Registry.models()` passes through and `nova engine models hf` prints as a warning instead of
+silently truncating the list. `_explain()` (:77) translates router status codes into actions:
+401/403 → the token permission, 402 → "free Hugging Face accounts hold no Inference
+Providers credit" plus `nova engine use ollama`, 404 → pick an id from
+`nova engine models hf`, 429 → try `:cheapest`. An account with no credit is a billing fact,
+so it is reported as one rather than retried or hidden behind a placeholder answer.
+
 **`src/nova/engine/groq.py`** (42) and **`openai.py`** (42) — OpenAI-compatible chat
-completions, priorities 2 and 4. They exist as thin siblings so a third Open-shaped provider
+completions, priorities 3 and 5. They exist as thin siblings so a third Open-shaped provider
 is a copy-and-edit, not a new abstraction.
 
-**`src/nova/engine/gemini.py`** (58) — priority 3, and the one that does *not* speak the
+**`src/nova/engine/gemini.py`** (58) — priority 4, and the one that does *not* speak the
 OpenAI shape: `complete()` (:36) maps the message list onto `generateContent` with a
 `systemInstruction` part and `role: user/model` alternation. Reads `GEMINI_API_KEY` or
 `GOOGLE_API_KEY` (:19). `list_models()` (:26) is why `nova engine models gemini` works — the
 other cloud engines don't offer a listing that reflects what your key can actually use.
 
-**`src/nova/engine/__init__.py`** (141) — the registry. `FACTORIES` (:17) is the one place a
-new engine is added. `select()` (:43) returns the first engine that probes; `complete()` (:66)
-pins the active engine first, retries transient failures via `_attempt()` (:91, 3 tries,
-linear 4 s/8 s backoff), then fails over; `models()` (:104) and `status()` (:111) feed
-`nova engine models` and `nova doctor`. `exhausted_message()` (:62) builds the per-engine
+**`src/nova/engine/__init__.py`** (144) — the registry. `FACTORIES` (:18) is the one place a
+new engine is added. `select()` (:45) returns the first engine that probes; `complete()` (:68)
+pins the active engine first, retries transient failures via `_attempt()` (:93, 3 tries,
+linear 4 s/8 s backoff), then fails over; `models()` (:106) and `status()` (:114) feed
+`nova engine models` and `nova doctor`. `exhausted_message()` (:64) builds the per-engine
 "why not" list rather than a generic failure.
 
 ## Agents
@@ -95,19 +112,27 @@ calling tools this turn so it doesn't emit a JSON action at you. `looks_like_act
 + `ACTION_CUES` (:14) drive the REPL's routing decision — imperative verbs start an agent
 run, a question stays in `answer()`, and anything ending in `?` is a question regardless.
 
-**`src/nova/agents/react.py`** (186) — the loop, described step by step in
-[walkthrough.md](walkthrough.md). `AgentOutcome` (:18) is the machine-readable result
-(`as_dict()` at :29 is what `--json` prints and tests assert on). `run()` (:66) enforces
+**`src/nova/agents/react.py`** (283) — the loop, described step by step in
+[walkthrough.md](walkthrough.md). `AgentOutcome` (:19) is the machine-readable result
+(`as_dict()` at :30 is what `--json` prints and tests assert on). `run()` (:67) enforces
 three early exits — no engine, no valid protocol after retries, step budget — so a stuck
-model cannot spend your time forever. `_messages()` (:140) rebuilds the prompt every step
-from real observations; `_observe()` (:150) is the only place a tool is executed, and it
-routes through `call_gated()`; `format_observation()` (:179) compacts results to ~1.4 KB with
-an explicit `[+N chars]` marker so a small model knows it is holding an excerpt.
+model cannot spend your time forever. `_messages()` (:207) rebuilds the prompt every step
+from real observations, and in the last three steps adds `STEPS LEFT: n` telling the model an
+observation that starts `OK` already holds the data; `_observe()` (:225) is the only place a
+tool is executed, it routes through `call_gated()`, and a denial there names the read-only
+tools that still work instead of advice the model cannot act on; `_signature()` (:260) is the
+anti-loop memory — the same call twice gets one more try, the third is answered with
+`REPEAT BLOCKED` without touching the handler, and a tool that fails twice for the *same*
+reason is closed for the run with `TOOL BLOCKED`; `_salvage()` (:177) spends one tool-free
+call on an answer from the transcript when the budget runs out, and throws it away if the
+model used it to ask for another tool; `format_observation()` (:265) leads with the numeric
+fields (`lines=7, size=146 …`), compacts the body to ~1.4 KB and appends an explicit
+`[+N chars]` marker so a small model knows it is holding an excerpt.
 
 ## Tools
 
-**`src/nova/tools/__init__.py`** (175) — the registry and the chokepoint. `Tool` (:16)
-carries `name, description, handler, params, risk, requires, example`; `available` (:26) is a
+**`src/nova/tools/__init__.py`** (175) — the registry and the chokepoint. `Tool` (:17)
+carries `name, description, handler, params, risk, requires, example`; `available` (:27) is a
 `find_spec` check, so a missing optional dependency becomes "needs `pip install psutil`"
 instead of an ImportError deep in a run. `prompt_block()` (:87) renders only the *available*
 tools into the system prompt — a tool the model can't use shouldn't be advertised to it.
@@ -118,14 +143,14 @@ handler is ever touched. `build_registry()` (:147) declares the 15 filesystem/ho
 and `_memory_tools()` (:133) adds 6 memory tools — 21 total, each labelled
 `read`/`write`/`exec`/`destructive`.
 
-**`src/nova/tools/files.py`** (203) — the sandbox. `resolve()` (:26) computes
-`{path, inside, exists, rel}` and never raises; `_guard()` (:41) refuses anything outside
+**`src/nova/tools/files.py`** (221) — the sandbox. `resolve()` (:41) computes
+`{path, inside, exists, rel}` and never raises; `_guard()` (:56) refuses anything outside
 `config.WORKSPACE` unless `allow_outside=true`, and it runs *before* any existence probe so
-the error text cannot be used to map your disk. `require_exists()` (:50) is separate for the
-same reason. On top of those three: `list_dir` (:55, capped, recursive option), `read_file`
-(:80, byte-capped), `write_file` (:97, append mode), `make_dir` (:110), `move_path` (:117),
-`delete_path` (:129, refuses the workspace root itself), `find_files` (:143),
-`search_content` (:159), `workspace_info` (:191).
+the error text cannot be used to map your disk. `require_exists()` (:65) is separate for the
+same reason. On top of those three: `list_dir` (:73, capped, recursive option), `read_file`
+(:98, byte-capped and reporting `lines`), `write_file` (:115, append mode), `make_dir` (:128),
+`move_path` (:135), `delete_path` (:147, refuses the workspace root itself),
+`find_files` (:161), `search_content` (:177), `workspace_info` (:209).
 
 **`src/nova/tools/shell.py`** (61) — three `exec`-risk tools behind one `_run()` (:14) that
 clamps the timeout to 1..600 s, captures stdout/stderr separately, and reports a kill on
@@ -194,12 +219,12 @@ smoke test can prove the tool layer end to end.
 
 ## CLI
 
-**`src/nova/cli/app.py`** (654) — the command surface. `_global_parser()` (:26) with
+**`src/nova/cli/app.py`** (657) — the command surface. `_global_parser()` (:26) with
 `SUPPRESS` defaults, `build_parser()` (:39) for subcommands, `normalise()` (:91),
-`apply_globals()` (:102), `make_gate()` (:112), one `cmd_*` per subcommand, `DISPATCH` (:617)
-and `main()` (:633) with fixed exit codes. `cmd_doctor()` (:403) is the diagnostic surface:
-engines, dependency state, env files found, sandbox root. `cmd_chat()` (:505) is the REPL,
-`_slash()` (:552) its commands, and `HELP_TEXT` (:493) the in-shell reference.
+`apply_globals()` (:102), `make_gate()` (:112), one `cmd_*` per subcommand, `DISPATCH` (:620)
+and `main()` (:636) with fixed exit codes. `cmd_doctor()` (:406) is the diagnostic surface:
+engines, dependency state, env files found, sandbox root. `cmd_chat()` (:508) is the REPL,
+`_slash()` (:555) its commands, and `HELP_TEXT` (:496) the in-shell reference.
 
 **`src/nova/cli/ui.py`** (161) — all printing. `force_utf8()` (:21) prevents
 `UnicodeEncodeError` on Windows codepages. `_fit()` (:80) allocates table column widths
@@ -226,7 +251,8 @@ writes nothing into your real `.nova/`.
 | file | covers |
 |------|--------|
 | `test_intelligence.py` | JSON extraction, fenced/embedded/flat replies, prose fallback, prompt assembly, AST validation |
-| `test_engine.py` | priority selection, failover, transient retry vs permanent failure, forced engine, status, `scrub`, actionable messages |
+| `test_engine.py` | priority selection, failover, transient retry vs permanent failure, forced engine, status, `scrub`, actionable messages, `HF_TOKEN` gate, router 402/401 wording, env and flag precedence for engine settings |
+| `test_agent_loop.py` | the ReAct loop against a scripted engine: repeat blocked on the third identical call, different args not treated as a repeat, a tool closed after two same-reason failures, budget pressure in the prompt, `final` termination, unknown tool as observation, observation shape, salvage answer when steps run out |
 | `test_tools_gate.py` | sandbox round-trips, escape refusal, flag-and-approval pairing, deny/yolo/non-interactive, hard blocks, session grants, read tools never prompt, shell capture, destructive labels, unknown tool/missing args |
 | `test_memory_skills.py` | fact and knowledge round-trips, context block feeding the prompt, skills running without an LLM, missing params, gate denial mid-skill, trace aggregation and dirty-file tolerance |
 | `test_cli.py` | subprocess runs against `python -m nova` with keys stripped: help/version/tables, write requiring yolo, `NOVA_YOLO`, session flags not persisting, escape blocked, hard block, doctor honesty with no engine, memory + skills + traces JSON, validate, REPL `quit` |

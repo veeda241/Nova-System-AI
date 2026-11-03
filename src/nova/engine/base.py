@@ -26,6 +26,7 @@ def scrub(text: str) -> str:
     text = re.sub(r"AIza[0-9A-Za-z_\-]{20,}", "AIza***", text)
     text = re.sub(r"sk-[A-Za-z0-9_\-\.]{12,}", "sk-***", text)
     text = re.sub(r"gsk_[A-Za-z0-9_\-]{12,}", "gsk_***", text)
+    text = re.sub(r"hf_[A-Za-z0-9]{20,}", "hf_***", text)
     return text
 
 
@@ -42,6 +43,7 @@ class Engine(ABC):
     name = "base"
     priority = 100
     is_local = False
+    list_note = ""
 
     def __init__(self, model: Optional[str] = None, timeout: int = 90):
         self.model = model

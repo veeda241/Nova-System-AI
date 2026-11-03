@@ -30,6 +30,18 @@ def test_paths_cannot_escape_the_workspace(sandbox):
     assert "outside the workspace" in result["error"]
 
 
+def test_a_missing_path_tells_the_agent_where_relative_paths_start(sandbox):
+    error = get_registry().call("read_file", {"path": "nowhere/notes.txt"})["error"]
+    assert "workspace root" in error and "list_dir" in error
+
+
+def test_a_path_written_with_the_folder_name_still_resolves(sandbox):
+    registry = get_registry()
+    registry.call("write_file", {"path": "notes/a.txt", "content": "hello nova"})
+    read = registry.call("read_file", {"path": f"{config.WORKSPACE.name}/notes/a.txt"})
+    assert read["ok"] is True and read["content"] == "hello nova"
+
+
 def test_escape_needs_both_flag_and_approval(sandbox):
     registry = get_registry()
     outside = config.NOVA_HOME / "secret.txt"

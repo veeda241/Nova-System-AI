@@ -11,7 +11,7 @@ from .base import Engine, EngineError, get_json, post_json
 
 class OpenAIEngine(Engine):
     name = "openai"
-    priority = 4
+    priority = 5
 
     URL = "https://api.openai.com/v1/chat/completions"
     MODELS = "https://api.openai.com/v1/models"

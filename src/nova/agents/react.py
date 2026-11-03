@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
@@ -70,6 +71,8 @@ class ReactAgent:
         denials: List[Dict[str, str]] = []
         engine_name = ""
         parse_retries = 0
+        failures: Dict[str, int] = {}
+        blocked: Dict[str, str] = {}
 
         try:
             preferred = config.get("engine", "auto")
@@ -84,7 +87,7 @@ class ReactAgent:
         self._emit(f"  engine {engine_name} | mode {self.gate.mode} | max {self.max_steps} steps")
 
         for step in range(1, self.max_steps + 1):
-            messages = self._messages(goal, history, session)
+            messages = self._messages(goal, history, session, step)
             started = time.time()
             try:
                 reply = self.engines.complete(messages, temperature=0.2, preferred=config.get("engine", "auto"))
@@ -116,18 +119,52 @@ class ReactAgent:
                 return AgentOutcome(True, message, step, engine_name, tools_used, denials, history, session)
 
             tool_name = action
+            if tool_name in blocked:
+                observation = (
+                    f"TOOL BLOCKED: {tool_name} already failed twice with \"{self._short(blocked[tool_name])}\". "
+                    "That reason will not change, so the tool is closed for this run. Use a different tool, or "
+                    'answer with {"thought": "...", "action": "final", "args": {"message": "what you found"}}.'
+                )
+                self.log.record(session, goal, step, "tool_blocked", tool=tool_name, reason=blocked[tool_name][:200])
+                history.append({"step": step, "action": tool_name, "args": args, "observation": observation})
+                self._emit(f"      -> {self._short(observation)}")
+                continue
+
+            signature = _signature(tool_name, args)
+            repeats = sum(1 for entry in history if entry.get("signature") == signature)
+            if repeats >= 2:
+                observation = (
+                    f"REPEAT BLOCKED: you already called {tool_name} with these exact arguments {repeats} times "
+                    "and the result was the same each time. Do not call it again. Either use a different tool, or "
+                    'answer with {"thought": "...", "action": "final", "args": {"message": "what you found"}}.'
+                )
+                self.log.record(session, goal, step, "repeat_blocked", tool=tool_name, repeats=repeats)
+                history.append({"step": step, "action": tool_name, "args": args, "observation": observation, "signature": signature})
+                self._emit(f"      -> {self._short(observation)}")
+                continue
+
             observation = self._observe(tool_name, args, session, goal, step)
             if observation.startswith("DENIED"):
                 denials.append({"step": str(step), "tool": tool_name, "reason": observation})
             else:
                 tools_used.append(tool_name)
-            history.append({"step": step, "action": tool_name, "args": args, "observation": observation})
+            if observation.startswith(("DENIED", "FAILED")):
+                key = tool_name + "|" + observation[:120]
+                failures[key] = failures.get(key, 0) + 1
+                if failures[key] >= 2 and tool_name not in blocked:
+                    blocked[tool_name] = observation
+            history.append({"step": step, "action": tool_name, "args": args, "observation": observation, "signature": signature})
             self._emit(f"      -> {self._short(observation)}")
 
-        self._finish(session, goal, len(history), engine_name, history, False, "step budget exhausted")
+        salvaged = self._salvage(goal, history, session)
+        summary = salvaged or (
+            f"stopped after {self.max_steps} step{'s' if self.max_steps != 1 else ''} without a final answer. "
+            f"Last observation: {self._short(history[-1]['observation']) if history else 'none'}"
+        )
+        self._finish(session, goal, self.max_steps, engine_name, history, False, summary)
         return AgentOutcome(
             False,
-            f"stopped after {self.max_steps} step{'s' if self.max_steps != 1 else ''} without a final answer. Last observation: {self._short(history[-1]['observation']) if history else 'none'}",
+            summary,
             self.max_steps,
             engine_name,
             tools_used,
@@ -137,13 +174,51 @@ class ReactAgent:
             error="max_steps",
         )
 
-    def _messages(self, goal: str, history: List[Dict[str, Any]], session: str) -> List[Dict[str, str]]:
+    def _salvage(self, goal: str, history: List[Dict[str, Any]], session: str) -> str:
+        """Out of steps is not out of information: ask for an answer instead of another action."""
+        if not history:
+            return ""
+        messages = [
+            {"role": "system", "content": intelligence.build_system_prompt("", "", str(config.WORKSPACE))},
+            {
+                "role": "user",
+                "content": (
+                    f"GOAL: {goal}\n\nTRANSCRIPT:\n{intelligence.history_block(history)}\n\n"
+                    "You have no steps left and cannot call a tool. Reply in plain text with the best answer the "
+                    "transcript supports, or name exactly what is still missing."
+                ),
+            },
+        ]
+        try:
+            reply = self.engines.complete(messages, temperature=0.2, preferred=config.get("engine", "auto"))
+        except EngineError as exc:
+            self.log.record(session, goal, self.max_steps, "salvage_failed", error=str(exc)[:200])
+            return ""
+
+        text = str(reply.get("text", "")).strip()
+        action, args, _thought, parse_error = intelligence.parse_reply(text)
+        if not parse_error and action and action != intelligence.FINAL:
+            self.log.record(session, goal, self.max_steps, "salvage", used=False, reason="still asked for a tool")
+            return ""
+        answer = str(args.get("message") or args.get("result") or "").strip() if action == intelligence.FINAL else text
+        self.log.record(session, goal, self.max_steps, "salvage", used=bool(answer), chars=len(answer))
+        return answer
+
+    def _messages(self, goal: str, history: List[Dict[str, Any]], session: str, step: int = 1) -> List[Dict[str, str]]:
         memory = context_block(goal) if self.use_memory else ""
         system = intelligence.build_system_prompt(self.tools.prompt_block(), memory, str(config.WORKSPACE))
+        remaining = max(1, self.max_steps - step + 1)
+        pressure = (
+            f"\n\nSTEPS LEFT: {remaining}. An observation that starts with OK already holds the data - if one of them "
+            "answers the goal, stop looking and reply with action \"final\" containing that answer. "
+            "Repeating an earlier call will not change its result."
+            if remaining <= 3
+            else ""
+        )
         user = (
             f"GOAL: {goal}\n\n"
             f"TRANSCRIPT SO FAR:\n{intelligence.history_block(history)}\n\n"
-            "Decide the single next action. Reply with one JSON object only."
+            "Decide the single next action. Reply with one JSON object only." + pressure
         )
         return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
@@ -163,7 +238,13 @@ class ReactAgent:
 
         if not ok:
             head = "DENIED" if result.get("denied") else "FAILED"
-            return f"{head} ({reason}): {result.get('error', 'no error reported')}"
+            if head == "DENIED":
+                return (
+                    f"DENIED ({reason}): {result.get('error', 'no error reported')}. No approval can be collected in "
+                    "this run, so write and exec actions are unavailable - use a read-only tool (read_file, list_dir, "
+                    'search_content) or answer with {"action": "final", "args": {"message": "..."}}.'
+                )
+            return f"FAILED ({reason}): {result.get('error', 'no error reported')}"
         return f"OK: {format_observation(payload)}"
 
     def _short(self, text: str) -> str:
@@ -176,11 +257,27 @@ class ReactAgent:
             get_store().log_task(goal, ok, summary, [h["action"] for h in history], steps, engine)
 
 
+def _signature(action: str, args: Dict[str, Any]) -> str:
+    """Same action + same arguments, so the loop can see it is about to repeat itself."""
+    return action + "|" + json.dumps(args, sort_keys=True, default=str)[:400]
+
+
 def format_observation(payload: Dict[str, Any], limit: int = 1400) -> str:
     """Compact the tool result into something a small model can still reason over."""
     for key in ("content", "stdout", "output", "text", "tree"):
-        if isinstance(payload.get(key), str) and payload[key]:
-            body = payload[key].strip()
-            return f"{key}={body[:limit]}" + (f" [+{len(body) - limit} chars]" if len(body) > limit else "")
+        raw = payload.get(key)
+        if isinstance(raw, str) and raw:
+            body = raw.strip()
+            # Counts first: a small model answers "how many" from the numbers it sees before the text.
+            scalars = [
+                (k, v) for k, v in payload.items()
+                if k != key and not k.startswith("_")
+                and (isinstance(v, (int, float, bool)) or (isinstance(v, str) and len(v) <= 60))
+            ]
+            numbers = ", ".join(f"{k}={v}" for k, v in scalars if isinstance(v, (int, float)) and not isinstance(v, bool))
+            details = ", ".join(f"{k}={v}" for k, v in scalars if not isinstance(v, (int, float)) or isinstance(v, bool))
+            facts = ", ".join(part for part in (numbers, details) if part)
+            prefix = f"{facts} " if facts else ""
+            return f"{prefix}{key}={body[:limit]}" + (f" [+{len(body) - limit} chars]" if len(body) > limit else "")
     text = ", ".join(f"{k}={v}" for k, v in payload.items())
     return text[:limit]

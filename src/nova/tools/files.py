@@ -23,13 +23,28 @@ def root() -> Path:
     return Path(config.WORKSPACE).resolve()
 
 
+def _dedupe_root(candidate: Path, base: Path) -> Path:
+    """`workspace/x.md` is how the sandbox looks from the project root; relative to the sandbox it is `x.md`.
+
+    Only used when the literal path is missing, so a real file named workspace/ inside the workspace wins.
+    """
+    if candidate.exists() or not candidate.is_relative_to(base):
+        return candidate
+    parts = candidate.relative_to(base).parts
+    if len(parts) > 1 and parts[0] == base.name:
+        alias = base.joinpath(*parts[1:])
+        if alias.exists():
+            return alias
+    return candidate
+
+
 def resolve(path: str | None) -> Dict[str, Any]:
     """Resolve a request against the workspace and report whether it escaped."""
     base = root()
     raw = (path or ".").strip() or "."
     candidate = Path(os.path.expanduser(raw))
     if not candidate.is_absolute():
-        candidate = base / candidate
+        candidate = _dedupe_root(base / candidate, base)
     try:
         resolved = candidate.resolve()
     except OSError as exc:
@@ -49,7 +64,10 @@ def _guard(located: Dict[str, Any], args: Dict[str, Any]) -> None:
 
 def require_exists(located: Dict[str, Any]) -> None:
     if not located["exists"]:
-        raise SandboxError(f"not found: {located['path']}")
+        raise SandboxError(
+            f"not found: {located['path']} - relative paths start at the workspace root ({root()}), "
+            "so pass the name from there and use list_dir to see what exists"
+        )
 
 
 def list_dir(path: str = ".", recursive: bool = False, limit: int = 300, **args: Any) -> Dict[str, Any]:
@@ -91,7 +109,7 @@ def read_file(path: str, max_bytes: int = TEXT_LIMIT, **args: Any) -> Dict[str, 
     except UnicodeDecodeError:
         text = data.decode("utf-8", errors="replace")
         return {"ok": True, "path": str(target), "binary": True, "size": size, "preview_hex": data[:64].hex()}
-    return {"ok": True, "path": str(target), "size": size, "truncated": size > len(data), "content": text}
+    return {"ok": True, "path": str(target), "size": size, "lines": text.count("\n") + 1, "truncated": size > len(data), "content": text}
 
 
 def write_file(path: str, content: str, append: bool = False, **args: Any) -> Dict[str, Any]:

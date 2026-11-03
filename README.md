@@ -42,9 +42,10 @@ rate-limits or 5xx responses are retried with backoff before the switch.
 | engine  | priority | needs                        |
 |---------|----------|------------------------------|
 | `ollama`| 1        | `ollama serve` running + one pulled model |
-| `groq`  | 2        | `GROQ_API_KEY`               |
-| `gemini`| 3        | `GEMINI_API_KEY`             |
-| `openai`| 4        | `OPENAI_API_KEY`             |
+| `hf`    | 2        | `HF_TOKEN` + Inference Providers credit |
+| `groq`  | 3        | `GROQ_API_KEY`               |
+| `gemini`| 4        | `GEMINI_API_KEY`             |
+| `openai`| 5        | `OPENAI_API_KEY`             |
 
 ```powershell
 Copy-Item .env.example .env
@@ -54,10 +55,10 @@ nova doctor
 
 `nova doctor` prints per-engine readiness, which tools are missing dependencies, and where
 state lives. Exit code `3` means no engine is reachable. Keys are read from the environment
-or `.env` (`GEMINI_API_KEY` / `GOOGLE_API_KEY`, `GROQ_API_KEY`, `OPENAI_API_KEY`; plus
-`NOVA_HOME`, `NOVA_WORKSPACE`, `OLLAMA_URL`, `OLLAMA_MODEL`, `NOVA_YOLO`) and never written
-to logs; error strings are scrubbed of `?key=`, `Bearer`, `AIza…`, `sk-…` and `gsk_…` before
-they reach your terminal.
+or `.env` (`GEMINI_API_KEY` / `GOOGLE_API_KEY`, `GROQ_API_KEY`, `OPENAI_API_KEY`, `HF_TOKEN`;
+plus `NOVA_HOME`, `NOVA_WORKSPACE`, `OLLAMA_URL`, `OLLAMA_MODEL`, `HF_MODEL`,
+`HF_MAX_TOKENS`, `NOVA_YOLO`) and never written to logs; error strings are scrubbed of
+`?key=`, `Bearer`, `AIza…`, `sk-…`, `gsk_…` and `hf_…` before they reach your terminal.
 
 ```powershell
 nova engine list
@@ -88,6 +89,35 @@ nova config set ollama_model nova
 To check the install without a model at all, `scripts/smoke.ps1 -Quick` runs 12 offline CLI
 checks (sandbox refusal, hard blocks, deny-on-pipe, skills replay, JSON output) plus the full
 test suite when you drop `-Quick`.
+
+### Any laptop, no model download
+
+`hf` talks to Hugging Face's Inference Providers router, so the weights live on someone
+else's hardware: a token is the whole install, and the same goal runs on a laptop that could
+never hold a 3 GB model. Create a **fine-grained** token at
+[huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) with the
+*"Make calls to Inference Providers"* permission, then:
+
+```powershell
+Set-Item -Path env:HF_TOKEN -Value (Get-Clipboard)   # copy the token in the browser first
+nova engine use hf
+nova engine models hf          # the ids the router actually serves
+nova go "summarise study-plan.md"
+```
+
+That variable lives in one shell. To keep it, put `HF_TOKEN=hf_...` in `.env` - Nova reads
+it from disk only if the real environment does not already define it, and never logs it.
+
+`nova engine models hf` is a real list, not a guess - the router only serves models with a
+provider behind them, and the default id carries a policy suffix (`:fastest`, `:cheapest`,
+`:preferred` or `:provider`) that picks which one answers.
+
+One thing this cannot work around: **Inference Providers is metered, and a free Hugging Face
+account has no included credit** (PRO adds $2/month, more is purchased pay-as-you-go). Nova
+says so in those terms instead of hiding it - a `402` comes back as "this account has no
+Inference Providers credit" plus the two ways forward, one of which is `nova engine use
+ollama`. If you want hosted and free, `groq` has a no-cost tier and takes a key from
+[console.groq.com/keys](https://console.groq.com/keys).
 
 ## Command surface
 
@@ -193,7 +223,7 @@ Three documents exist so you can understand the project without spelunking:
 - **[docs/modules.md](docs/modules.md)** — one paragraph per file: what it owns and the
   failure mode it prevents.
 
-Start at `src/nova/cli/app.py:633` (`main`) and `src/nova/agents/react.py:66` (`run`). The
+Start at `src/nova/cli/app.py:636` (`main`) and `src/nova/agents/react.py:67` (`run`). The
 package is a `src/` layout, so run it without installing with
 `$env:PYTHONPATH = "src"` before any `python -m nova ...`.
 

@@ -14,7 +14,7 @@ SRC = ROOT / "src"
 
 def run(args, home, expect_keys=False, extra_env=None, stdin_text=None):
     env = dict(os.environ)
-    for key in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GROQ_API_KEY", "OPENAI_API_KEY"):
+    for key in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GROQ_API_KEY", "OPENAI_API_KEY", "HF_TOKEN"):
         if not expect_keys:
             env.pop(key, None)
     env["NOVA_HOME"] = str(home)
@@ -200,5 +200,5 @@ def test_chat_repl_exits_on_a_bare_quit_word(tmp_path):
 def test_engine_list_names_every_backend(tmp_path):
     code, out = run(["engine", "list"], tmp_path)
     assert code == 0
-    for name in ("ollama", "groq", "gemini", "openai"):
+    for name in ("ollama", "hf", "groq", "gemini", "openai"):
         assert name in out

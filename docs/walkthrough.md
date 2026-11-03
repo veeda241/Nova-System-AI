@@ -12,7 +12,7 @@ Two entry points, one implementation:
 - the `nova` console script → `nova.cli.app:main` ([`pyproject.toml`](../pyproject.toml), `[project.scripts]`)
 - `python -m nova` → `src/nova/__main__.py:8`, which calls the same `main()`
 
-`main()` is at [src/nova/cli/app.py:633](../src/nova/cli/app.py#L633). It does exactly five
+`main()` is at [src/nova/cli/app.py:636](../src/nova/cli/app.py#L636). It does exactly five
 things: force UTF-8 output, build the parser, normalise the args, apply globals, dispatch.
 Nothing else happens before you understand the flow.
 
@@ -50,7 +50,7 @@ sandbox root, and calls `config.override()` for `engine`/`approval_mode`/`max_st
 > This is the fix for a real bug: these flags used to be written into
 > `.nova/settings.json`, so one `nova go --mode yolo` left the user permanently in yolo.
 > Overrides now live in `config.OVERRIDES`
-> ([src/nova/config.py:100](../src/nova/config.py#L100)) for the lifetime of the process
+> ([src/nova/config.py:101](../src/nova/config.py#L101)) for the lifetime of the process
 > only. `config.get()` reads overrides first, then the saved file, then `DEFAULTS`.
 
 ## Step 2 — the gate is built before the agent
@@ -85,7 +85,7 @@ tools, no gate.
 
 ## Step 4 — the loop
 
-`ReactAgent.run()` ([src/nova/agents/react.py:66](../src/nova/agents/react.py#L66)).
+`ReactAgent.run()` ([src/nova/agents/react.py:67](../src/nova/agents/react.py#L67)).
 
 First it opens a trace session (`self.log.new_session()`) and selects an engine. If *no*
 engine probes successfully it returns immediately, before any tool exists:
@@ -98,12 +98,12 @@ Then, for each step up to `max_steps`:
 
 | line | what happens |
 |------|--------------|
-| [:140](../src/nova/agents/react.py#L140) `_messages()` | build `[system, user]` from tools block + memory block + workspace + transcript |
+| [:207](../src/nova/agents/react.py#L207) `_messages()` | build `[system, user]` from tools block + memory block + workspace + transcript |
 | — | `self.engines.complete(messages, temperature=0.2, preferred=...)` |
 | [:96](../src/nova/intelligence.py#L96) `parse_reply()` | text → `(action, args, thought, error)` |
 | — | bad JSON? append a correction to the transcript and retry (max 2) |
 | — | `action == "final"`? report and return |
-| [:150](../src/nova/agents/react.py#L150) `_observe()` | execute the tool through the gate, compact the result |
+| [:225](../src/nova/agents/react.py#L225) `_observe()` | execute the tool through the gate, compact the result |
 
 Two details that matter for reliability:
 
@@ -124,22 +124,22 @@ looping. Only a *malformed* action costs a retry, and after two the run stops wi
 
 ## Step 5 — the engine call
 
-`Registry.complete()` ([src/nova/engine/__init__.py:66](../src/nova/engine/__init__.py#L66))
+`Registry.complete()` ([src/nova/engine/__init__.py:68](../src/nova/engine/__init__.py#L68))
 puts the currently active engine first, then walks the rest by priority. For each candidate:
-`probe()` (cheap: `/api/tags`, or "is a key set"), then `_attempt()`
-([:91](../src/nova/engine/__init__.py#L91)) — 3 tries with linear backoff (4 s, 8 s) but
+`probe()` (cheap: `/api/tags`, `/v1/models` or "is a key set"), then `_attempt()`
+([:93](../src/nova/engine/__init__.py#L93)) — 3 tries with linear backoff (4 s, 8 s) but
 **only** when `is_transient()`
-([engine/base.py:35](../src/nova/engine/base.py#L35)) recognises 429/5xx/"high demand"/
+([engine/base.py:36](../src/nova/engine/base.py#L36)) recognises 429/5xx/"high demand"/
 "rate limit"/"timed out". A 401 or an unknown model fails over immediately; hammering a
 key you don't have is never retried.
 
 Every exception passes through `scrub()`
 ([engine/base.py:20](../src/nova/engine/base.py#L20)), which rewrites `?key=`, `Bearer`,
-`AIza…`, `sk-…`, `gsk_…` before the string reaches a terminal, a trace row or a test.
+`AIza…`, `sk-…`, `gsk_…`, `hf_…` before the string reaches a terminal, a trace row or a test.
 
 ## Step 6 — the gate decides
 
-`_observe()` ([react.py:150](../src/nova/agents/react.py#L150)) first checks the tool name
+`_observe()` ([react.py:225](../src/nova/agents/react.py#L225)) first checks the tool name
 against the registry, so a hallucinated tool becomes an observation ("UNKNOWN TOOL ... Available: ...")
 rather than a crash. Then:
 
@@ -180,18 +180,18 @@ and `_tool` on the result. All exceptions become `{"ok": False, "error": ...}` �
 never dies because a tool did.
 
 For `write_file`, `files.write_file()`
-([src/nova/tools/files.py:97](../src/nova/tools/files.py#L97)) is reached through the two
+([src/nova/tools/files.py:115](../src/nova/tools/files.py#L115)) is reached through the two
 functions every file tool calls first:
 
 ```python
-located = resolve(path)   # files.py:26 — absolute path, inside?, exists?, rel
-_guard(located, args)     # files.py:41 — refuse escape *before* touching the disk
+located = resolve(path)   # files.py:41 — absolute path, inside?, exists?, rel
+_guard(located, args)     # files.py:56 — refuse escape *before* touching the disk
 ```
 
 `resolve()` never raises; `_guard()` raises `SandboxError` when `inside` is false and
 `allow_outside` is not set. Ordering is the security property: if existence were checked
 first, an attacker-model could map your filesystem by which errors it got back.
-`require_exists()` ([:50](../src/nova/tools/files.py#L50)) is only for read/move/delete
+`require_exists()` ([:65](../src/nova/tools/files.py#L65)) is only for read/move/delete
 paths that must exist.
 
 `tools/shell.py` has the same discipline from the other side: `run_command()`
@@ -200,10 +200,31 @@ paths that must exist.
 
 ## Step 8 — the observation goes back into the loop
 
-`format_observation()` ([react.py:179](../src/nova/agents/react.py#L179)) prefers the one
+`format_observation()` ([react.py:265](../src/nova/agents/react.py#L265)) prefers the one
 field that carries the payload (`content`, `stdout`, `output`, `text`, `tree`), caps it at
 1400 chars and appends `[+N chars]` so the model knows it is looking at an excerpt. That
-marker is what stops a small model from "summarising" a file it only saw half of.
+marker is what stops a small model from "summarising" a file it only saw half of. The facts
+before the body are ordered numbers-first (`lines=7, size=146, … content=…`) because a 3B
+model answering "how many lines" reads the head of the line and stops there.
+
+## Step 8b — what stops the loop from spinning
+
+A weak model does not fail by crashing; it fails by asking the same question of the same
+tool until the budget runs out. Three guards in `run()` spend steps on that, and all three
+write a trace row so `nova traces session <id>` shows what was refused:
+
+| guard | fires when | observation the model gets |
+|-------|-----------|----------------------------|
+| `_signature()` ([react.py:260](../src/nova/agents/react.py#L260)) | the same tool with the same arguments has already been called twice | `REPEAT BLOCKED` — and the handler is never reached |
+| the failure counter | the same tool failed twice for the *same* reason (the denial text is part of the key) | `TOOL BLOCKED` — that tool is closed for the rest of the run |
+| `STEPS LEFT: n` in `_messages()` | three steps remain | says an observation starting `OK` already holds the data, so answer instead of looking again |
+
+If the budget still runs out, `_salvage()`
+([react.py:177](../src/nova/agents/react.py#L177)) makes one last tool-free call that asks
+for an answer from the transcript. You get the answer, still labelled `ok: false,
+error: "max_steps"` — the run did not verify anything, and pretending otherwise would be the
+one failure mode worth hiding. If the model used that call to ask for another tool, the
+reply is discarded rather than dressed up as a result.
 
 ## Step 9 — everything is written down
 
@@ -216,7 +237,7 @@ Two sinks, both append-only, both off by design from git:
   `nova traces stats` prints: success rate, per-tool latency, slowest tool, top errors.
 - `MemoryStore.log_task()`
   ([src/nova/memory/store.py:66](../src/nova/memory/store.py#L66)) — via `_finish()`
-  (react.py:173), one compact row in `.nova/memory.json` with goal, ok, summary, tool list,
+  (react.py:254](../src/nova/agents/react.py#L254)), one compact row in `.nova/memory.json` with goal, ok, summary, tool list,
   steps, engine.
 
 That row is what the *next* run injects as `RECENT TASKS` through `context_block()`
@@ -230,7 +251,7 @@ deterministic replay: `skills.run()`
 
 Back in `cmd_go()`: the final text, then `steps=… engine=… tools=…`, then a warning with the
 count of blocked actions. With `--json` you get `AgentOutcome.as_dict()`
-([react.py:29](../src/nova/agents/react.py#L29)) instead, which is the shape the tests and
+([react.py:30](../src/nova/agents/react.py#L30)) instead, which is the shape the tests and
 any wrapper script should rely on.
 
 Rendering goes through `cli/ui.py`: `force_utf8()` ([:21](../src/nova/cli/ui.py#L21)) stops
@@ -241,12 +262,12 @@ back to plain text when `rich` isn't installed.
 
 ## Reading order if you want the short version
 
-1. [src/nova/cli/app.py:633](../src/nova/cli/app.py#L633) `main` — dispatch and exit codes
+1. [src/nova/cli/app.py:636](../src/nova/cli/app.py#L636) `main` — dispatch and exit codes
 2. [src/nova/cli/app.py:145](../src/nova/cli/app.py#L145) `cmd_go` — how an agent is built
-3. [src/nova/agents/react.py:66](../src/nova/agents/react.py#L66) `run` — the loop
+3. [src/nova/agents/react.py:67](../src/nova/agents/react.py#L67) `run` — the loop
 4. [src/nova/intelligence.py:96](../src/nova/intelligence.py#L96) `parse_reply` — the protocol
-5. [src/nova/engine/__init__.py:66](../src/nova/engine/__init__.py#L66) `complete` — failover
+5. [src/nova/engine/__init__.py:68](../src/nova/engine/__init__.py#L68) `complete` — failover
 6. [src/nova/tools/__init__.py:117](../src/nova/tools/__init__.py#L117) `call_gated` — the chokepoint
 7. [src/nova/security.py:63](../src/nova/security.py#L63) `review` — the ladder
-8. [src/nova/tools/files.py:41](../src/nova/tools/files.py#L41) `_guard` — the sandbox
+8. [src/nova/tools/files.py:56](../src/nova/tools/files.py#L56) `_guard` — the sandbox
 9. [src/nova/learning/__init__.py:27](../src/nova/learning/__init__.py#L27) `record` — the audit trail

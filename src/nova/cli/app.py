@@ -26,7 +26,7 @@ GLOBAL_FLAGS = ("engine", "mode", "workspace", "max_steps", "json", "quiet")
 def _global_parser() -> argparse.ArgumentParser:
     """SUPPRESS defaults keep parent options from being overwritten by subparsers."""
     parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("--engine", default=argparse.SUPPRESS, help="force an engine: ollama | groq | gemini | openai")
+    parser.add_argument("--engine", default=argparse.SUPPRESS, help="force an engine: ollama | hf | groq | gemini | openai")
     parser.add_argument("--mode", choices=["ask", "yolo", "deny"], default=argparse.SUPPRESS, help="permission mode (default: ask)")
     parser.add_argument("--yolo", action="store_const", const="yolo", dest="mode", default=argparse.SUPPRESS, help="shortcut for --mode yolo")
     parser.add_argument("--workspace", default=argparse.SUPPRESS, help="sandbox root for file and shell tools")
@@ -240,6 +240,9 @@ def cmd_engine(args: argparse.Namespace) -> int:
         ui.heading(f"{payload['engine']} models (current: {payload['current']})")
         for model in models:
             ui.line(f"  {model}")
+        note = str(payload.get("note") or "")
+        if note:
+            ui.warn(f"  {note}")
         ui.line(f"\n  {len(models)} available - set one with `nova config set {payload['engine']}_model <name>`")
         return 0
     if args.action == "test":

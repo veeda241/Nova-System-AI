@@ -8,6 +8,7 @@ import nova.engine as engine_pkg
 from nova.engine import Registry
 from nova.engine.base import Engine, EngineError, is_transient, scrub
 from nova.engine.gemini import GeminiEngine
+from nova.engine.huggingface import HuggingFaceEngine
 from nova.engine.ollama import OllamaEngine
 
 
@@ -101,9 +102,9 @@ def test_unknown_engine_name_is_an_error():
 
 
 def test_scrub_masks_every_key_shape():
-    text = "?key=AIzaSyABCDEFGHIJKLMNOPQRSTUVWXYZ012345 Bearer gsk_abcdefghijklmnopqrstuvwxyz1234 sk-abcdefghijklmnop1234"
+    text = "?key=AIzaSyABCDEFGHIJKLMNOPQRSTUVWXYZ012345 Bearer gsk_abcdefghijklmnopqrstuvwxyz1234 sk-abcdefghijklmnop1234 hf_AAAAAAAAAAAAAAAAAAAAAAAAAAA"
     cleaned = scrub(text)
-    for secret in ("AIzaSyABCDEFGHI", "gsk_abcdefghijk", "sk-abcdefghijkl"):
+    for secret in ("AIzaSyABCDEFGHI", "gsk_abcdefghijk", "sk-abcdefghijkl", "hf_AAAAAAAAAAAAAAAAAAAAAAAAAAA"):
         assert secret not in cleaned
     assert "***" in cleaned
 
@@ -124,6 +125,29 @@ def test_ollama_reports_the_actionable_fix():
     assert "ollama serve" in engine.available_reason()
 
 
+def test_the_engine_probes_the_url_named_in_the_environment(sandbox, monkeypatch):
+    monkeypatch.setenv("OLLAMA_URL", "http://127.0.0.1:9")
+    engine = OllamaEngine()
+    assert engine.base_url == "http://127.0.0.1:9"
+    assert engine.is_available() is False
+
+
+def test_a_saved_setting_does_not_override_the_environment(sandbox, monkeypatch):
+    from nova import config
+
+    monkeypatch.setenv("OLLAMA_MODEL", "qwen2.5")
+    config.save_settings({"ollama_model": "llama3.2"})
+    assert OllamaEngine().model == "qwen2.5"
+
+
+def test_a_flag_beats_the_environment(sandbox, monkeypatch):
+    from nova import config
+
+    monkeypatch.setenv("OLLAMA_MODEL", "qwen2.5")
+    config.override("ollama_model", "llama3.2")
+    assert OllamaEngine().model == "llama3.2"
+
+
 def test_gemini_without_a_key_explains_where_to_get_one(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
@@ -142,3 +166,44 @@ def test_models_requires_an_engine_that_supports_listing():
     with pytest.raises(EngineError) as exc:
         registry.models("gemini")
     assert "cannot list models" in str(exc.value)
+
+
+def test_hf_without_a_token_explains_which_permission_the_token_needs(monkeypatch):
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    reason = HuggingFaceEngine().available_reason()
+    assert "HF_TOKEN is not set" in reason and "Inference Providers" in reason
+
+
+def test_hf_completion_without_a_token_never_reaches_the_network(monkeypatch):
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    with pytest.raises(EngineError) as exc:
+        HuggingFaceEngine().complete([{"role": "user", "content": "hi"}])
+    assert "HF_TOKEN" in str(exc.value)
+
+
+def test_factories_are_ordered_local_first_then_hosted():
+    order = sorted((cls.priority, name) for name, cls in engine_pkg.FACTORIES.items())
+    assert [name for _, name in order] == ["ollama", "hf", "groq", "gemini", "openai"]
+
+
+def test_the_hf_model_comes_from_settings(sandbox, monkeypatch):
+    from nova import config
+
+    monkeypatch.setenv("HF_TOKEN", "hf_" + "x" * 30)
+    config.override("hf_model", "Qwen/Qwen3-4B:cheapest")
+    assert HuggingFaceEngine().model == "Qwen/Qwen3-4B:cheapest"
+
+
+def test_no_credit_says_so_instead_of_looking_like_a_bug():
+    from nova.engine.huggingface import _explain
+
+    message = str(_explain(EngineError("HTTP 402 from https://router.huggingface.co/v1/chat/completions: payment required")))
+    assert "free accounts get none" in message and "ollama" in message
+
+
+def test_a_router_error_cannot_carry_the_token(sandbox):
+    from nova.engine.huggingface import _explain
+
+    secret = "hf_" + "Z" * 34
+    message = str(_explain(EngineError("HTTP 401 from x: {'error': 'invalid " + secret + "'}")))
+    assert secret not in message and "hf_***" in message

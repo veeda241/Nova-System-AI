@@ -60,7 +60,7 @@ def top_processes(limit: int = 12, **args: Any) -> Dict[str, Any]:
 def environment(**args: Any) -> Dict[str, Any]:
     from ..engine import get_registry
 
-    keys = {name: bool(os.environ.get(name)) for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GROQ_API_KEY", "OPENAI_API_KEY")}
+    keys = {name: bool(os.environ.get(name)) for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GROQ_API_KEY", "OPENAI_API_KEY", "HF_TOKEN")}
     return {
         "ok": True,
         "api_keys": keys,

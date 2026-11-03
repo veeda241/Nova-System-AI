@@ -11,6 +11,8 @@ DEFAULTS: Dict[str, Any] = {
     "engine": "auto",
     "ollama_url": "http://localhost:11434",
     "ollama_model": "llama3.2",
+    "hf_model": "meta-llama/Llama-3.1-8B-Instruct:fastest",
+    "hf_max_tokens": 700,
     "groq_model": "llama-3.3-70b-versatile",
     "openai_model": "gpt-4o-mini",
     "gemini_model": "gemini-2.5-flash",
@@ -37,7 +39,12 @@ KNOWLEDGE_DB = STATE_DIR / "knowledge.db"
 TRACES_FILE = STATE_DIR / "traces.jsonl"
 LOG_FILE = STATE_DIR / "nova.log"
 
-ENV_KEYS = ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GROQ_API_KEY", "OPENAI_API_KEY", "NOVA_HOME", "NOVA_WORKSPACE", "OLLAMA_URL", "OLLAMA_MODEL")
+ENV_SETTINGS = {
+    "ollama_url": "OLLAMA_URL",
+    "ollama_model": "OLLAMA_MODEL",
+    "hf_model": "HF_MODEL",
+    "hf_max_tokens": "HF_MAX_TOKENS",
+}
 
 OVERRIDES: Dict[str, Any] = {}
 
@@ -92,8 +99,13 @@ def save_settings(patch: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def get(key: str, default: Any = None) -> Any:
+    """Flag (--engine) beats shell/.env (OLLAMA_URL) beats saved settings beats shipped default."""
     if key in OVERRIDES:
         return OVERRIDES[key]
+    env_name = ENV_SETTINGS.get(key)
+    from_env = os.environ.get(env_name) if env_name else None
+    if from_env:
+        return from_env
     return load_settings().get(key, DEFAULTS.get(key, default))
 
 
