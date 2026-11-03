@@ -1,0 +1,10 @@
+# Core runtime: one dependency. Everything else is an opt-in extra.
+requests>=2.28
+
+# Optional - install what you actually use:
+#   pip install -e ".[rich]"     nicer tables and colours (CLI degrades to plain text without it)
+#   pip install -e ".[system]"   real CPU / memory / disk / process numbers for nova tools
+#   pip install -e ".[voice]"    optional speech in/out (nova voice on)
+#   pip install -e ".[dev]"      the test suite
+#
+# Local inference is not a pip dependency - install Ollama and `ollama pull llama3.2`.

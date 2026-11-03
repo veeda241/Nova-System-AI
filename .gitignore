@@ -119,3 +119,14 @@ dmypy.json
 
 # Gemini CLI (contains Google secrets)
 gemini-cli-main/
+
+# Nova runtime state - agent memory, traces and its sandbox are never committed
+.nova/
+workspace/
+.harvest/
+
+# Local media produced by the agent
+*.wav
+*.mp3
+*.png
+!docs/**/*.png
