@@ -99,6 +99,129 @@ def test_add_list_remove_custom_skill(sandbox):
     assert skills.remove("noop")["ok"] is False
 
 
+class StubEngines:
+    """Stand-in for the engine registry, so a `think` step can be tested without a model."""
+
+    def __init__(self, reply="two findings: no docstring, bare except"):
+        self.reply = reply
+        self.prompts = []
+
+    def complete(self, messages, temperature=0.3, preferred="auto"):
+        self.prompts.append(messages[-1]["content"])
+        return {"engine": "stub", "text": self.reply}
+
+
+def test_a_think_step_sees_the_previous_step_output(sandbox):
+    skills.add(
+        "lint",
+        "write, read, judge",
+        [
+            {"action": "write_file", "args": {"path": "a.py", "content": "def f():\n    pass\n"}},
+            {"action": "read_file", "args": {"path": "a.py"}, "output_key": "source"},
+            {"action": "think", "args": {"prompt": "Review: {source}"}, "output_key": "verdict"},
+        ],
+    )
+    engines = StubEngines()
+    result = skills.run("lint", PermissionGate(mode="yolo"), engines=engines)
+    assert result["ok"] is True
+    assert result["results"][-1]["engine"] == "stub"
+    assert engines.prompts[0].startswith("Review: ") and "def f():" in engines.prompts[0]
+
+
+def test_a_dead_engine_fails_the_skill_with_its_own_words(sandbox):
+    class Dead(StubEngines):
+        def complete(self, messages, temperature=0.3, preferred="auto"):
+            from nova.engine.base import EngineError
+
+            raise EngineError("every engine failed:\n  - ollama: not reachable")
+
+    skills.add("judge", "think hard", [{"action": "think", "args": {"prompt": "anything"}}])
+    result = skills.run("judge", PermissionGate(mode="yolo"), engines=Dead())
+    assert result["ok"] is False and result["failed_at"] == 1
+    assert "every engine failed" in result["error"]
+
+
+def test_a_think_step_with_no_prompt_never_calls_a_model(sandbox):
+    assert "args.prompt" in skills.think("", StubEngines())["error"]
+
+
+def test_threading_clips_what_a_small_model_cannot_hold():
+    body = skills._thread({"ok": True, "text": "x" * (skills.STEP_OUTPUT_LIMIT + 500)})
+    assert body.endswith("[...clipped]") and len(body) == skills.STEP_OUTPUT_LIMIT + len("[...clipped]")
+
+
+def test_threading_hands_a_tool_step_over_as_json():
+    body = skills._thread({"ok": True, "_ms": 12.0, "count": 3, "by_ext": "pdf=3"})
+    assert "pdf=3" in body and "_ms" not in body
+
+
+CODE_LINT_PACK = """
+[skill]
+name = "code-lint"
+description = "Read a source file and report code quality issues"
+version = "0.1.0"
+author = "openjarvis"
+
+[[skill.steps]]
+tool_name = "file_read"
+arguments_template = '{"path": "{file_path}"}'
+output_key = "source_code"
+
+[[skill.steps]]
+tool_name = "think"
+arguments_template = '{"thought": "Find the quality issues: {source_code}"}'
+output_key = "issues"
+"""
+
+
+def test_a_real_pack_becomes_nova_steps(sandbox):
+    pack = sandbox / "code-lint.toml"
+    pack.write_text(CODE_LINT_PACK, encoding="utf-8")
+    parsed = skills.parse_pack(pack)
+    assert parsed["problems"] == []
+    assert [step["action"] for step in parsed["steps"]] == ["read_file", "think"]
+    assert parsed["params"] == ["file_path"]
+    assert parsed["steps"][1]["args"]["prompt"].startswith("Find the quality issues:")
+
+
+def test_an_imported_pack_runs_end_to_end(sandbox):
+    (config.WORKSPACE / "a.py").write_text("def f():\n    pass\n", encoding="utf-8")
+    pack = sandbox / "code-lint.toml"
+    pack.write_text(CODE_LINT_PACK, encoding="utf-8")
+    assert skills.import_pack(pack)["ok"] is True
+    engines = StubEngines()
+    result = skills.run("code-lint", PermissionGate(mode="yolo"), {"file_path": "a.py"}, engines)
+    assert result["ok"] is True and "def f():" in engines.prompts[0]
+
+
+def test_a_pack_nova_cannot_complete_is_refused_whole(sandbox):
+    pack = sandbox / "research.toml"
+    pack.write_text(CODE_LINT_PACK.replace('"think"', '"web_search"').replace("code-lint", "research"), encoding="utf-8")
+    outcome = skills.import_pack(pack)
+    assert outcome["ok"] is False and any("web_search" in problem for problem in outcome["refused"])
+    assert skills.get("research") is None
+
+
+def test_a_step_missing_its_required_arg_is_refused(sandbox):
+    pack = sandbox / "halfwritten.toml"
+    pack.write_text(
+        CODE_LINT_PACK.replace("file_read", "file_write").replace('"think"', '"file_read"'),
+        encoding="utf-8",
+    )
+    outcome = skills.import_pack(pack)
+    assert outcome["ok"] is False and any("never given content" in problem for problem in outcome["refused"])
+
+
+def test_import_dir_accounts_for_every_pack_it_touched(sandbox):
+    (sandbox / "good.toml").write_text(CODE_LINT_PACK, encoding="utf-8")
+    (sandbox / "bad.toml").write_text(
+        CODE_LINT_PACK.replace('"think"', '"pdf_extract"').replace("code-lint", "pdf-reader"), encoding="utf-8"
+    )
+    outcome = skills.import_dir(sandbox)
+    assert outcome["ok"] is True and outcome["imported"] == ["code-lint"]
+    assert "pdf-reader" in outcome["refused"]
+
+
 def test_traces_record_and_aggregate(tmp_path):
     log = TraceLog(tmp_path / "traces.jsonl")
     session = log.new_session()

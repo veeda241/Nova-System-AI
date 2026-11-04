@@ -22,7 +22,7 @@ MODEL_LIST_LIMIT = 80
 
 class HuggingFaceEngine(Engine):
     name = "hf"
-    priority = 2
+    priority = 3
     is_local = False
 
     def __init__(self, model: str | None = None, api_key: str | None = None):

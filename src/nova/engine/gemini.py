@@ -13,7 +13,7 @@ BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 
 class GeminiEngine(Engine):
     name = "gemini"
-    priority = 4
+    priority = 5
 
     def __init__(self, model: str | None = None, api_key: str | None = None):
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")

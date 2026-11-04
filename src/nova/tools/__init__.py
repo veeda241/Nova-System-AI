@@ -12,6 +12,9 @@ from . import files, shell, system as system_tools
 
 __all__ = ["Tool", "Registry", "get_registry", "register", "DESTRUCTIVE", "EXEC", "READ", "WRITE"]
 
+# These have defaults inside the handlers, so a caller may leave them out.
+OPTIONAL_PARAMS = ("path", "pattern", "query", "cwd", "limit", "timeout", "recursive", "append", "max_bytes", "max_files", "allow_outside")
+
 
 @dataclass
 class Tool:
@@ -26,6 +29,11 @@ class Tool:
     @property
     def available(self) -> bool:
         return all(_has(module) for module in self.requires)
+
+    @property
+    def required(self) -> List[str]:
+        """Params the handler cannot do without; the rest have sensible defaults in the tool itself."""
+        return [p for p in self.params if p not in OPTIONAL_PARAMS]
 
     def unavailable_reason(self) -> str:
         missing = [m for m in self.requires if not _has(m)]
@@ -96,7 +104,7 @@ class Registry:
         if not tool.available:
             return {"ok": False, "error": f"tool '{name}' is unavailable: {tool.unavailable_reason()}"}
 
-        missing = [p for p in tool.params if p not in args and p not in ("path", "pattern", "query", "cwd", "limit", "timeout", "recursive", "append", "max_bytes", "max_files", "allow_outside")]
+        missing = [p for p in tool.required if p not in args]
         if missing:
             return {"ok": False, "error": f"{name} is missing argument(s): {', '.join(missing)}"}
 

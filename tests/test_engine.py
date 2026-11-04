@@ -183,7 +183,60 @@ def test_hf_completion_without_a_token_never_reaches_the_network(monkeypatch):
 
 def test_factories_are_ordered_local_first_then_hosted():
     order = sorted((cls.priority, name) for name, cls in engine_pkg.FACTORIES.items())
-    assert [name for _, name in order] == ["ollama", "hf", "groq", "gemini", "openai"]
+    assert [name for _, name in order] == ["llama", "ollama", "hf", "groq", "gemini", "openai"]
+
+
+def llama_payload(url: str, **kwargs):
+    if url.endswith("/health"):
+        return {"status": "ok"}
+    return {"data": [{"id": "qwen3-4b-instruct-2507-q4_k_m"}]}
+
+
+def test_llama_adopts_the_model_the_server_is_serving(monkeypatch):
+    from nova.engine import llamacpp
+
+    monkeypatch.setattr(llamacpp, "get_json", llama_payload)
+    engine = llamacpp.LlamaCppEngine(base_url="http://127.0.0.1:8080")
+    engine.probe()
+    assert engine.model == "qwen3-4b-instruct-2507-q4_k_m"
+
+
+def test_llama_talks_openai_compatible_to_the_local_port(monkeypatch):
+    from nova.engine import llamacpp
+
+    seen = {}
+
+    def fake_post(url, payload, headers=None):
+        seen["url"] = url
+        seen["payload"] = payload
+        return {"choices": [{"message": {"content": "  hello  "}}]}
+
+    monkeypatch.setattr(llamacpp, "get_json", llama_payload)
+    monkeypatch.setattr(llamacpp, "post_json", fake_post)
+    engine = llamacpp.LlamaCppEngine(base_url="http://127.0.0.1:8080")
+    assert engine.complete([{"role": "user", "content": "hi"}]) == "hello"
+    assert seen["url"] == "http://127.0.0.1:8080/v1/chat/completions"
+    assert seen["payload"]["model"] == "qwen3-4b-instruct-2507-q4_k_m"
+
+
+def test_llama_names_the_command_that_starts_the_server():
+    from nova.engine.llamacpp import LlamaCppEngine
+
+    reason = LlamaCppEngine(base_url="http://127.0.0.1:9").available_reason()
+    assert "not reachable" in reason and "llama-server -hf" in reason
+
+
+def test_a_busy_llama_server_is_not_reported_as_missing(monkeypatch):
+    from nova.engine import llamacpp
+
+    def busy(url, **kwargs):
+        if url.endswith("/health"):
+            raise llamacpp.EngineError("HTTP 503 from http://127.0.0.1:8080/health")
+        return llama_payload(url)
+
+    monkeypatch.setattr(llamacpp, "get_json", busy)
+    reason = llamacpp.LlamaCppEngine(base_url="http://127.0.0.1:8080").available_reason()
+    assert "no free slot" in reason and "not reachable" not in reason
 
 
 def test_the_hf_model_comes_from_settings(sandbox, monkeypatch):

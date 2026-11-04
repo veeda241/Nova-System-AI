@@ -12,7 +12,7 @@ PREFERRED = ("llama3", "llama3.2", "mistral", "gemma", "qwen")
 
 class OllamaEngine(Engine):
     name = "ollama"
-    priority = 1
+    priority = 2
     is_local = True
 
     def __init__(self, base_url: str | None = None, model: str | None = None):

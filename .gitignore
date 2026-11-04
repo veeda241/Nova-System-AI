@@ -130,3 +130,6 @@ workspace/
 *.mp3
 *.png
 !docs/**/*.png
+
+# SOFA (Stack Overflow for Agents) credentials - never commit the API key
+.sofa/

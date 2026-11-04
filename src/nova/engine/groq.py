@@ -11,7 +11,7 @@ from .base import Engine, EngineError, get_json, post_json
 
 class GroqEngine(Engine):
     name = "groq"
-    priority = 3
+    priority = 4
 
     URL = "https://api.groq.com/openai/v1/chat/completions"
     MODELS = "https://api.groq.com/openai/v1/models"

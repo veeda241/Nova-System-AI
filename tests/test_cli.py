@@ -21,6 +21,7 @@ def run(args, home, expect_keys=False, extra_env=None, stdin_text=None):
     env["NOVA_WORKSPACE"] = str(home / "workspace")
     env["PYTHONPATH"] = str(SRC) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
     env["OLLAMA_URL"] = "http://127.0.0.1:9"
+    env["LLAMA_CPP_URL"] = "http://127.0.0.1:9"
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONWARNINGS"] = "ignore"
     env["NOVA_YOLO"] = ""
@@ -169,6 +170,47 @@ def test_a_skill_runs_offline_and_emits_json(tmp_path):
     assert payload["ok"] is True and len(payload["results"]) == 3
 
 
+OPENJARVIS_PACK = """
+[skill]
+name = "code-lint"
+description = "Read a source file and report issues"
+version = "0.1.0"
+author = "openjarvis"
+
+[[skill.steps]]
+tool_name = "file_read"
+arguments_template = '{"path": "{file_path}"}'
+output_key = "source_code"
+
+[[skill.steps]]
+tool_name = "think"
+arguments_template = '{"thought": "Grade this code: {source_code}"}'
+output_key = "issues"
+"""
+
+
+def test_skills_import_turns_a_pack_into_nova_steps(tmp_path):
+    (tmp_path / "workspace").mkdir()
+    pack = tmp_path / "code-lint.toml"
+    pack.write_text(OPENJARVIS_PACK, encoding="utf-8")
+    code, out = run(["skills", "import", str(pack), "--json"], tmp_path)
+    assert code == 0
+    payload = json.loads(out)
+    assert payload["ok"] is True and payload["params"] == ["file_path"]
+    code, out = run(["skills", "show", "code-lint", "--json"], tmp_path)
+    assert json.loads(out)["steps"][1]["action"] == "think"
+
+
+def test_skills_import_refuses_a_pack_nova_cannot_run(tmp_path):
+    (tmp_path / "workspace").mkdir()
+    pack = tmp_path / "web.toml"
+    pack.write_text(
+        OPENJARVIS_PACK.replace('"think"', '"web_search"').replace("code-lint", "web-read"), encoding="utf-8"
+    )
+    code, out = run(["skills", "import", str(pack), "--json"], tmp_path)
+    assert code == 1 and "web_search" in out
+
+
 def test_traces_stats_are_json_clean(tmp_path):
     code, out = run(["traces", "stats", "--json"], tmp_path)
     assert code == 0
@@ -200,5 +242,5 @@ def test_chat_repl_exits_on_a_bare_quit_word(tmp_path):
 def test_engine_list_names_every_backend(tmp_path):
     code, out = run(["engine", "list"], tmp_path)
     assert code == 0
-    for name in ("ollama", "hf", "groq", "gemini", "openai"):
+    for name in ("llama", "ollama", "hf", "groq", "gemini", "openai"):
         assert name in out

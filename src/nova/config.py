@@ -9,6 +9,9 @@ from typing import Any, Dict, Optional
 
 DEFAULTS: Dict[str, Any] = {
     "engine": "auto",
+    "llama_url": "http://127.0.0.1:8080",
+    "llama_model": "",
+    "llama_max_tokens": 700,
     "ollama_url": "http://localhost:11434",
     "ollama_model": "llama3.2",
     "hf_model": "meta-llama/Llama-3.1-8B-Instruct:fastest",
@@ -40,6 +43,9 @@ TRACES_FILE = STATE_DIR / "traces.jsonl"
 LOG_FILE = STATE_DIR / "nova.log"
 
 ENV_SETTINGS = {
+    "llama_url": "LLAMA_CPP_URL",
+    "llama_model": "LLAMA_CPP_MODEL",
+    "llama_max_tokens": "LLAMA_CPP_MAX_TOKENS",
     "ollama_url": "OLLAMA_URL",
     "ollama_model": "OLLAMA_MODEL",
     "hf_model": "HF_MODEL",

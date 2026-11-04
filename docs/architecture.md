@@ -17,8 +17,8 @@ nova/cli/app.py ---- argv -> subcommand -> globals (--engine/--mode/--json/--qui
                     |
         +-----------+------------+
         v                        v
-  engine/  (ollama>groq>     tools/  (21 tools, each with a risk label)
-           gemini>openai)         |
+  engine/  (llama>ollama>hf> tools/  (21 tools, each with a risk label)
+           >groq>gemini>openai)   |
         |                         v
         v                   security.py  PermissionGate
    intelligence.py                 |
@@ -50,15 +50,25 @@ function names, `eval`/`exec`/`compile`/`__import__` usage) used by `nova valida
 ## 2. Engine — `src/nova/engine/`
 
 `Engine` (in `base.py`) is the contract: `probe`, `complete`, `list_models`,
-`available_reason`, `is_local`, `priority`. Five implementations:
+`available_reason`, `is_local`, `priority`. Six implementations:
 
 | engine   | priority | transport                        | needs              |
 |----------|----------|----------------------------------|--------------------|
-| `ollama` | 1        | `POST /api/chat`, `/api/tags`    | local server       |
-| `hf`     | 2        | `router.huggingface.co/v1` chat completions + `/v1/models` | `HF_TOKEN` + provider credit |
-| `groq`   | 3        | OpenAI-style chat completions    | `GROQ_API_KEY`     |
-| `gemini` | 4        | `generateContent` + systemInstruction | `GEMINI_API_KEY` |
-| `openai` | 5        | chat completions                 | `OPENAI_API_KEY`   |
+| `llama`  | 1        | `127.0.0.1:8080/v1` chat completions + `/health`, `/v1/models` | a running `llama-server` |
+| `ollama` | 2        | `POST /api/chat`, `/api/tags`    | local server       |
+| `hf`     | 3        | `router.huggingface.co/v1` chat completions + `/v1/models` | `HF_TOKEN` + provider credit |
+| `groq`   | 4        | OpenAI-style chat completions    | `GROQ_API_KEY`     |
+| `gemini` | 5        | `generateContent` + systemInstruction | `GEMINI_API_KEY` |
+| `openai` | 6        | chat completions                 | `OPENAI_API_KEY`   |
+
+`llamacpp.py` is the engine that runs weights from Hugging Face on this machine instead of on
+someone's server: `llama-server -hf unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M` downloads one
+2.5 GB quant and serves it OpenAI-compatible, so any GGUF the user can name becomes the brain
+and nothing is metered. `probe()` tells three states apart - nothing listening (message names
+the `llama-server` command), something listening but no free slot (still loading, or the
+context is busy), and ready - and a ready server supplies its own model id from `/v1/models`
+so `llama_model` only has to be set when the server hosts several. It outranks `ollama`
+because a server on :8080 is started deliberately, with a model chosen deliberately.
 
 `huggingface.py` exists so a goal is not tied to the laptop it was written on: the weights
 stay remote, and a model id carries a policy suffix (`:fastest`, `:cheapest`, `:preferred`,
@@ -143,6 +153,12 @@ success rate, average tool latency, slowest tool, most-used tools, top errors an
 used. Traces are for inspection and for writing skills — **Nova does not fine-tune a model
 from them**, and the modules that claimed otherwise were deleted in v3.
 
+Skills (`.nova/skills.json`, `src/nova/skills.py`) are the only learning mechanism that changes
+behaviour: a named list of steps replayed through the same gated tool registry, optionally with
+one or more `think` steps whose answers flow forward through `output_key`. `nova skills import`
+reads OpenJarvis TOML packs and refuses, with reasons, any pack that needs a tool Nova does not
+have — so the skill list can only ever contain sequences this machine can actually run.
+
 ## Permission model (`src/nova/security.py`)
 
 Risks ladder up: `read(0) → write(1) → exec(2) → destructive(3)`. `review()` (`:63`) decides
@@ -188,5 +204,5 @@ else configured.
 `nova tools list`, in the agent's prompt block, and behind the gate automatically.
 
 **New engine:** subclass `Engine` in `src/nova/engine/`, set `priority`, register it in
-`FACTORIES` (`engine/__init__.py:18`). Raise `EngineError` with a specific message — it is
+`FACTORIES` (`engine/__init__.py:19`). Raise `EngineError` with a specific message — it is
 scrubbed and classified for retry for free.

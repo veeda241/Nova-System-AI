@@ -41,11 +41,12 @@ rate-limits or 5xx responses are retried with backoff before the switch.
 
 | engine  | priority | needs                        |
 |---------|----------|------------------------------|
-| `ollama`| 1        | `ollama serve` running + one pulled model |
-| `hf`    | 2        | `HF_TOKEN` + Inference Providers credit |
-| `groq`  | 3        | `GROQ_API_KEY`               |
-| `gemini`| 4        | `GEMINI_API_KEY`             |
-| `openai`| 5        | `OPENAI_API_KEY`             |
+| `llama` | 1        | `llama-server` running with a GGUF loaded |
+| `ollama`| 2        | `ollama serve` running + one pulled model |
+| `hf`    | 3        | `HF_TOKEN` + Inference Providers credit |
+| `groq`  | 4        | `GROQ_API_KEY`               |
+| `gemini`| 5        | `GEMINI_API_KEY`             |
+| `openai`| 6        | `OPENAI_API_KEY`             |
 
 ```powershell
 Copy-Item .env.example .env
@@ -56,7 +57,8 @@ nova doctor
 `nova doctor` prints per-engine readiness, which tools are missing dependencies, and where
 state lives. Exit code `3` means no engine is reachable. Keys are read from the environment
 or `.env` (`GEMINI_API_KEY` / `GOOGLE_API_KEY`, `GROQ_API_KEY`, `OPENAI_API_KEY`, `HF_TOKEN`;
-plus `NOVA_HOME`, `NOVA_WORKSPACE`, `OLLAMA_URL`, `OLLAMA_MODEL`, `HF_MODEL`,
+plus `NOVA_HOME`, `NOVA_WORKSPACE`, `LLAMA_CPP_URL`, `LLAMA_CPP_MODEL`, `LLAMA_CPP_MAX_TOKENS`,
+`OLLAMA_URL`, `OLLAMA_MODEL`, `HF_MODEL`,
 `HF_MAX_TOKENS`, `NOVA_YOLO`) and never written to logs; error strings are scrubbed of
 `?key=`, `Bearer`, `AIza…`, `sk-…`, `gsk_…` and `hf_…` before they reach your terminal.
 
@@ -67,10 +69,34 @@ nova config set gemini_model gemini-2.5-flash
 nova engine test explain recursion in three lines
 ```
 
+### Run a GGUF from Hugging Face on your own hardware
+
+Priority 1 is a local `llama-server` holding one GGUF file: the weights come off the Hugging Face
+Hub, then inference is yours - no key, no quota, nothing metered. Three commands, each on one line:
+
+```powershell
+Invoke-WebRequest -Uri https://github.com/ggml-org/llama.cpp/releases/download/b12098/llama-b12098-bin-win-cpu-x64.zip -OutFile llama.zip
+Expand-Archive llama.zip -DestinationPath llama.cpp
+.\llama.cpp\llama-server.exe -hf unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M --host 127.0.0.1 --port 8080
+```
+
+Then, in a second window:
+
+```powershell
+nova engine use llama
+nova ask what is in my workspace
+```
+
+`Q4_K_M` of a 4B model is 2.5 GB - the quant picked for 6 GB of VRAM with 16 GB of RAM. Swap in any
+other GGUF with `--model path\to\file.gguf`, or grab the CUDA build
+(`llama-b12098-bin-win-cuda-12.4-x64.zip`) for GPU offload on NVIDIA. The build number in the URL
+comes from the llama.cpp releases page and changes with every release; Nova reads the model id the
+server is actually hosting, so nothing else needs configuring.
+
 ### Fully local, no API key
 
-Nova prefers `ollama` (priority 1), so a machine with no keys at all is the normal
-configuration, not the fallback. One script does the whole setup - it checks Ollama is
+Nova prefers the local engines (`llama`, then `ollama`), so a machine with no keys at all is the
+normal configuration, not the fallback. One script does the whole Ollama setup - it checks Ollama is
 installed, starts the daemon if it isn't running, asks before downloading a model (~2 GB),
 switches the config to local and smoke-tests it:
 
@@ -130,7 +156,7 @@ ollama`. If you want hosted and free, `groq` has a no-cost tier and takes a key 
 | `nova tools list \| show <name> \| schema <name> \| call <name> k=v` | inspect or invoke the registry directly |
 | `nova engine list \| use <name> \| models [name] \| test <prompt>` | engine control |
 | `nova memory show \| set <k> <v> \| get <k> \| del <k> \| search <text> \| note <cat> <k> <v> \| notes <cat> \| history \| stats` | facts, structured notes, task history |
-| `nova skills list \| show <name> \| run <name> key=value \| add \| rm` | replayable deterministic step sequences, run without a model |
+| `nova skills list \| show <name> \| run <name> key=value \| add \| import <file.toml\|dir> \| rm` | replayable step sequences, with one optional model step |
 | `nova traces stats \| recent [n] \| session <id>` | what the agent actually did, step by step |
 | `nova doctor` | engines, tools, voice and state report |
 | `nova voice status \| on \| off \| say <text> \| listen` | optional speech, honest errors when a dependency is missing |
@@ -195,8 +221,12 @@ gate refuses rather than guessing, and says so: re-run with `--yolo`.
   arguments, decision, duration, error. `nova traces stats` aggregates success rate, slowest
   tool and top errors. **Nova does not fine-tune a model from traces** - nothing in this
   repo trains anything, and the old modules that claimed to were removed.
-- `skills` are named step sequences that run the same tools deterministically, offline, with
-  no model call. `nova skills add` records a sequence you repeat.
+- `skills` are named step sequences that replay the same tools deterministically with no model
+  call. A `think` step is the exception: it asks the engine once and passes its answer to the
+  next step, which is how a skill does judgement ("is this lint report a bug or a style nit")
+  that a fixed step list cannot. `nova skills add` records a sequence you repeat, and
+  `nova skills import <folder>` reads OpenJarvis TOML packs - Nova imports the ones it can
+  actually run and refuses the rest with the step number and the missing tool named.
 
 ## What is deliberately not here
 
@@ -214,7 +244,7 @@ software. It edits files in its sandbox and runs commands you approve.
 | path | layer |
 |------|-------|
 | `src/nova/intelligence.py` | persona, action grammar, JSON reply parsing, Python AST validation |
-| `src/nova/engine/` | `ollama`, `groq`, `gemini`, `openai` backends, priority failover, key scrubbing |
+| `src/nova/engine/` | `llama` (local GGUF), `ollama`, `hf`, `groq`, `gemini`, `openai` backends, priority failover, key scrubbing |
 | `src/nova/agents/react.py` | the think-act-observe loop, step budget, tool transcript |
 | `src/nova/tools/` | sandboxed files, shell/python execution, system info - 21 registered tools |
 | `src/nova/memory/` | JSON fact store + SQLite knowledge base |

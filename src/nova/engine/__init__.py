@@ -10,12 +10,14 @@ from .base import Engine, EngineError, is_transient
 from .gemini import GeminiEngine
 from .groq import GroqEngine
 from .huggingface import HuggingFaceEngine
+from .llamacpp import LlamaCppEngine
 from .ollama import OllamaEngine
 from .openai import OpenAIEngine
 
 __all__ = ["Engine", "EngineError", "Registry", "build_registry", "get_registry"]
 
 FACTORIES = {
+    "llama": LlamaCppEngine,
     "ollama": OllamaEngine,
     "hf": HuggingFaceEngine,
     "groq": GroqEngine,
@@ -115,12 +117,14 @@ class Registry:
         active = self.active.name if self.active else None
         rows = []
         for engine in self.ordered():
+            # One probe per engine: it is a network call, and it is what adopts a served model id.
+            reason = engine.available_reason()
             rows.append(
                 {
                     "name": engine.name,
                     "model": engine.model,
-                    "available": engine.is_available(),
-                    "reason": engine.available_reason(),
+                    "available": reason == "ready",
+                    "reason": reason,
                     "local": engine.is_local,
                     "priority": engine.priority,
                     "active": engine.name == active,

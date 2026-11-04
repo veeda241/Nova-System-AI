@@ -26,7 +26,7 @@ GLOBAL_FLAGS = ("engine", "mode", "workspace", "max_steps", "json", "quiet")
 def _global_parser() -> argparse.ArgumentParser:
     """SUPPRESS defaults keep parent options from being overwritten by subparsers."""
     parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("--engine", default=argparse.SUPPRESS, help="force an engine: ollama | hf | groq | gemini | openai")
+    parser.add_argument("--engine", default=argparse.SUPPRESS, help="force an engine: llama | ollama | hf | groq | gemini | openai")
     parser.add_argument("--mode", choices=["ask", "yolo", "deny"], default=argparse.SUPPRESS, help="permission mode (default: ask)")
     parser.add_argument("--yolo", action="store_const", const="yolo", dest="mode", default=argparse.SUPPRESS, help="shortcut for --mode yolo")
     parser.add_argument("--workspace", default=argparse.SUPPRESS, help="sandbox root for file and shell tools")
@@ -64,7 +64,7 @@ def build_parser() -> argparse.ArgumentParser:
     memory.add_argument("args", nargs="*")
 
     skills_p = sub.add_parser("skills", parents=[global_], help="replayable step sequences")
-    skills_p.add_argument("action", nargs="?", choices=["list", "show", "run", "add", "rm"], default="list")
+    skills_p.add_argument("action", nargs="?", choices=["list", "show", "run", "add", "import", "rm"], default="list")
     skills_p.add_argument("args", nargs="*")
 
     traces = sub.add_parser("traces", parents=[global_], help="what the agent actually did")
@@ -348,6 +348,17 @@ def cmd_skills(args: argparse.Namespace) -> int:
             return 2
         ui.result(skills.add(rest[0], rest[1], steps), args.json)
         return 0
+    if action == "import":
+        if not rest:
+            ui.fail("usage: nova skills import <file.toml|directory>")
+            return 2
+        target = Path(rest[0]).expanduser()
+        if not target.exists():
+            ui.fail(f"no such file or directory: {target}")
+            return 2
+        outcome = skills.import_dir(target) if target.is_dir() else skills.import_pack(target)
+        ui.result(outcome, args.json)
+        return 0 if outcome.get("ok") else 1
     if action == "rm":
         if not rest:
             ui.fail("usage: nova skills rm <name>")
@@ -411,7 +422,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     show_engines(rows)
     if not usable:
         ui.fail("no engine is reachable - Nova cannot think until one is configured")
-        ui.line("    local : install Ollama, run `ollama serve`, then `ollama pull llama3.2`")
+        ui.line("    local : run `llama-server -hf <repo>:<QUANT>` for a GGUF from Hugging Face, or install Ollama and `ollama pull llama3.2`")
         ui.line("    hosted: put GEMINI_API_KEY or GROQ_API_KEY in .env (see .env.example)")
 
     blocked = [row for row in tool_registry().rows() if not row["available"]]

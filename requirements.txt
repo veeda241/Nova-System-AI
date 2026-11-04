@@ -7,4 +7,5 @@ requests>=2.28
 #   pip install -e ".[voice]"    optional speech in/out (nova voice on)
 #   pip install -e ".[dev]"      the test suite
 #
-# Local inference is not a pip dependency - install Ollama and `ollama pull llama3.2`.
+# Local inference is not a pip dependency - either install Ollama and `ollama pull llama3.2`,
+# or download the llama.cpp binaries and serve a GGUF: `llama-server -hf <repo>:<QUANT> --port 8080`.

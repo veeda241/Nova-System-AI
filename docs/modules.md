@@ -6,7 +6,7 @@ and the failure mode it was written to prevent. Paths are relative to the repo r
 ```text
 src/nova/{__init__,__main__,config,intelligence,security,skills,voice}.py
 src/nova/cli/{app,ui}.py
-src/nova/engine/{base,ollama,huggingface,groq,gemini,openai}.py
+src/nova/engine/{base,llamacpp,ollama,huggingface,groq,gemini,openai}.py
 src/nova/agents/{__init__,react}.py
 src/nova/tools/{__init__,files,shell,system}.py
 src/nova/memory/{__init__,store,kb}.py
@@ -65,14 +65,24 @@ else is a configuration error and switching is better than waiting. `post_json()
 every transport exception into a scrubbed `EngineError` and appends an actionable hint per
 status code (404 → `nova engine models`, 401 → check `.env`, 429 → wait or switch).
 
-**`src/nova/engine/ollama.py`** (60 lines) — local priority 1. `probe()` (:30) distinguishes
+**`src/nova/engine/llamacpp.py`** (81) — local priority 1: the Hugging Face GGUF that runs on
+this machine rather than on someone's router. `probe()` (:39) separates the three states a
+local server can be in — nothing listening (`START_HINT` (:16) names the `llama-server -hf
+<repo>:<QUANT>` command that fixes it), listening but `no free slot` (weights still loading or
+the context is busy, checked with `_listening()` (:56) so a half-started server is not reported
+as absent), and ready — and on ready it adopts the served model id from `/v1/models`, so
+`llama_model` is only needed when the server hosts several models. `complete()` (:63) posts the
+OpenAI shape to `/v1/chat/completions` with `max_tokens` from config, and an empty reply says
+which `finish_reason` came back instead of pretending the model answered.
+
+**`src/nova/engine/ollama.py`** (60 lines) — local priority 2. `probe()` (:30) distinguishes
 the two different problems you can have with Ollama and says which: daemon unreachable vs
 running with no model pulled (message names the exact `ollama pull` command). `_pick()` (:41)
 prefers llama/mistral/gemma/qwen families when no model is configured, so a fresh install
 finds something sane on its own. `complete()` (:48) uses `/api/chat` non-streaming with the
 temperature the agent asked for.
 
-**`src/nova/engine/huggingface.py`** (92) — priority 2, and the reason Nova is not tied to
+**`src/nova/engine/huggingface.py`** (92) — priority 3, and the reason Nova is not tied to
 the laptop it was installed on: `POST https://router.huggingface.co/v1/chat/completions` with
 `Authorization: Bearer HF_TOKEN`, OpenAI-shaped body and response, so no SDK and no local
 weights. Model ids carry a provider policy suffix (`:fastest` default, `:cheapest`,
@@ -88,20 +98,20 @@ Providers credit" plus `nova engine use ollama`, 404 → pick an id from
 so it is reported as one rather than retried or hidden behind a placeholder answer.
 
 **`src/nova/engine/groq.py`** (42) and **`openai.py`** (42) — OpenAI-compatible chat
-completions, priorities 3 and 5. They exist as thin siblings so a third Open-shaped provider
+completions, priorities 4 and 6. They exist as thin siblings so a third Open-shaped provider
 is a copy-and-edit, not a new abstraction.
 
-**`src/nova/engine/gemini.py`** (58) — priority 4, and the one that does *not* speak the
+**`src/nova/engine/gemini.py`** (58) — priority 5, and the one that does *not* speak the
 OpenAI shape: `complete()` (:36) maps the message list onto `generateContent` with a
 `systemInstruction` part and `role: user/model` alternation. Reads `GEMINI_API_KEY` or
 `GOOGLE_API_KEY` (:19). `list_models()` (:26) is why `nova engine models gemini` works — the
 other cloud engines don't offer a listing that reflects what your key can actually use.
 
-**`src/nova/engine/__init__.py`** (144) — the registry. `FACTORIES` (:18) is the one place a
-new engine is added. `select()` (:45) returns the first engine that probes; `complete()` (:68)
-pins the active engine first, retries transient failures via `_attempt()` (:93, 3 tries,
-linear 4 s/8 s backoff), then fails over; `models()` (:106) and `status()` (:114) feed
-`nova engine models` and `nova doctor`. `exhausted_message()` (:64) builds the per-engine
+**`src/nova/engine/__init__.py`** (148) — the registry. `FACTORIES` (:19) is the one place a
+new engine is added. `select()` (:47) returns the first engine that probes; `complete()` (:70)
+pins the active engine first, retries transient failures via `_attempt()` (:95, 3 tries,
+linear 4 s/8 s backoff), then fails over; `models()` (:108) and `status()` (:116) feed
+`nova engine models` and `nova doctor`. `exhausted_message()` (:66) builds the per-engine
 "why not" list rather than a generic failure.
 
 ## Agents
@@ -135,16 +145,19 @@ fields (`lines=7, size=146 …`), compacts the body to ~1.4 KB and appends an ex
 
 ## Tools
 
-**`src/nova/tools/__init__.py`** (175) — the registry and the chokepoint. `Tool` (:17)
-carries `name, description, handler, params, risk, requires, example`; `available` (:27) is a
+**`src/nova/tools/__init__.py`** (183) — the registry and the chokepoint. `Tool` (:20)
+carries `name, description, handler, params, risk, requires, example`; `available` (:30) is a
 `find_spec` check, so a missing optional dependency becomes "needs `pip install psutil`"
-instead of an ImportError deep in a run. `prompt_block()` (:87) renders only the *available*
+instead of an ImportError deep in a run. `OPTIONAL_PARAMS` (:16) is the single list of args a
+handler can do without, and `Tool.required` (:34) is params-minus-that-list — the skill
+importer and the call path ask the same question, so they cannot disagree about what a step
+owes. `prompt_block()` (:95) renders only the *available*
 tools into the system prompt — a tool the model can't use shouldn't be advertised to it.
-`call()` (:91) validates required args, times the handler, converts every exception into
-`{"ok": False, "error": ...}`, and stamps `_ms`/`_tool`. `call_gated()` (:117) is the only
+`call()` (:99) validates required args, times the handler, converts every exception into
+`{"ok": False, "error": ...}`, and stamps `_ms`/`_tool`. `call_gated()` (:125) is the only
 entry the agent and skills use: gate first, handler second, and a denial returns before the
-handler is ever touched. `build_registry()` (:147) declares the 15 filesystem/host/exec tools
-and `_memory_tools()` (:133) adds 6 memory tools — 21 total, each labelled
+handler is ever touched. `build_registry()` (:155) declares the 15 filesystem/host/exec tools
+and `_memory_tools()` (:141) adds 6 memory tools — 21 total, each labelled
 `read`/`write`/`exec`/`destructive`.
 
 **`src/nova/tools/files.py`** (246) — the sandbox. `resolve()` (:41) computes
@@ -220,22 +233,38 @@ not fine-tune from traces, and no code pretends otherwise.
 
 ## Skills
 
-**`src/nova/skills.py`** (128) — deterministic, replayable step sequences stored in
-`.nova/skills.json`. `add()` (:62) saves `[{"action","args"}]` steps; `run()` (:92) fills
-`{param}` placeholders (`_fill()`, :114), executes each step through the same
+**`src/nova/skills.py`** (284) — named, replayable step sequences stored in
+`.nova/skills.json`. `add()` (:92) saves `[{"action","args"}]` steps; `run()` (:122) fills
+`{param}` placeholders (`_fill()`, :177), executes each step through the same
 `call_gated()` the agent uses — so a skill cannot out-privilege the current mode — and stops
-at the first failure with `failed_at` plus per-step detail. A seeded skill means
-`nova skills run workspace_audit` works with **no engine at all**, which is why the offline
+at the first failure with `failed_at` plus per-step detail. A `think` step (`MODEL_STEP` :16,
+`think()` :160) is the one step that is not deterministic: it makes a single model call and its
+answer is threaded into later steps through `output_key` (`_thread()` :187, clipped at
+`STEP_OUTPUT_LIMIT` = 1500 so a small local context still holds the chain). A seeded skill means
+`nova skills run workspace_audit` still works with **no engine at all**, which is why the offline
 smoke test can prove the tool layer end to end.
+
+`parse_pack()` (:207) turns an OpenJarvis TOML pack (`[skill]` + `[[skill.steps]]`) into either
+runnable Nova steps or the exact reasons it cannot run. `TOOL_ALIASES` (:20) maps the eight
+names that do have a Nova equivalent and `ARG_ALIASES` (:30) renames their arguments;
+`NO_NOVA_EQUIVALENT` (:34) refuses the four that do not (`web_search`, `http_request`,
+`pdf_extract`, `memory_index`) rather than quietly dropping the step; `POSIX_ONLY` (:42) catches
+shell steps that cmd.exe cannot run; and a step that is never given a `Tool.required` argument is
+refused too. `_placeholders()` (:202) subtracts the declared `output_key`s from the `{...}` names,
+so only genuine inputs surface as `params`. `import_pack()` (:265) writes a pack only when
+`problems` is empty — a half-imported skill is worse than a refused one — and `import_dir()` (:276)
+reports `imported` plus `refused {name: [reasons]}` for a whole folder.
 
 ## CLI
 
-**`src/nova/cli/app.py`** (657) — the command surface. `_global_parser()` (:26) with
+**`src/nova/cli/app.py`** (668) — the command surface. `_global_parser()` (:26) with
 `SUPPRESS` defaults, `build_parser()` (:39) for subcommands, `normalise()` (:91),
-`apply_globals()` (:102), `make_gate()` (:112), one `cmd_*` per subcommand, `DISPATCH` (:620)
-and `main()` (:636) with fixed exit codes. `cmd_doctor()` (:406) is the diagnostic surface:
-engines, dependency state, env files found, sandbox root. `cmd_chat()` (:508) is the REPL,
-`_slash()` (:555) its commands, and `HELP_TEXT` (:496) the in-shell reference.
+`apply_globals()` (:102), `make_gate()` (:112), one `cmd_*` per subcommand, `DISPATCH` (:631)
+and `main()` (:647) with fixed exit codes. `cmd_doctor()` (:417) is the diagnostic surface:
+engines, dependency state, env files found, sandbox root. `cmd_skills()` (:315) replays a skill
+and `import`s a TOML pack or folder, returning exit 1 with the refusal reasons rather than
+importing a skill that cannot run. `cmd_chat()` (:519) is the REPL,
+`_slash()` (:566) its commands, and `HELP_TEXT` (:507) the in-shell reference.
 
 **`src/nova/cli/ui.py`** (161) — all printing. `force_utf8()` (:21) prevents
 `UnicodeEncodeError` on Windows codepages. `_fit()` (:80) allocates table column widths
@@ -262,11 +291,11 @@ writes nothing into your real `.nova/`.
 | file | covers |
 |------|--------|
 | `test_intelligence.py` | JSON extraction, fenced/embedded/flat replies, prose fallback, prompt assembly, AST validation |
-| `test_engine.py` | priority selection, failover, transient retry vs permanent failure, forced engine, status, `scrub`, actionable messages, `HF_TOKEN` gate, router 402/401 wording, env and flag precedence for engine settings |
+| `test_engine.py` | priority selection, failover, transient retry vs permanent failure, forced engine, status, `scrub`, actionable messages, `HF_TOKEN` gate, router 402/401 wording, GGUF server states (absent vs busy vs ready) and the OpenAI-shaped local call, env and flag precedence for engine settings |
 | `test_agent_loop.py` | the ReAct loop against a scripted engine: repeat blocked on the third identical call, different args not treated as a repeat, a tool closed after two same-reason failures, budget pressure in the prompt, `final` termination, unknown tool as observation, observation shape, salvage answer when steps run out |
 | `test_tools_gate.py` | sandbox round-trips, escape refusal, flag-and-approval pairing, deny/yolo/non-interactive, hard blocks, session grants, read tools never prompt, shell capture, destructive labels, unknown tool/missing args |
-| `test_memory_skills.py` | fact and knowledge round-trips, context block feeding the prompt, skills running without an LLM, missing params, gate denial mid-skill, trace aggregation and dirty-file tolerance |
-| `test_cli.py` | subprocess runs against `python -m nova` with keys stripped: help/version/tables, write requiring yolo, `NOVA_YOLO`, session flags not persisting, escape blocked, hard block, doctor honesty with no engine, memory + skills + traces JSON, validate, REPL `quit` |
+| `test_memory_skills.py` | fact and knowledge round-trips, context block feeding the prompt, skills running without an LLM, missing params, gate denial mid-skill, a `think` step fed by the previous step's output, dead-engine failure reported in the skill's own words, threading clip, TOML pack parsing, whole-pack refusal, directory import, trace aggregation and dirty-file tolerance |
+| `test_cli.py` | subprocess runs against `python -m nova` with keys stripped: help/version/tables, write requiring yolo, `NOVA_YOLO`, session flags not persisting, escape blocked, hard block, doctor honesty with no engine, memory + skills + traces JSON, `skills import` accepting a pack and refusing one Nova cannot complete, validate, REPL `quit` |
 
 ## Non-code directories
 

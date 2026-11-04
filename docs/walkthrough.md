@@ -12,7 +12,7 @@ Two entry points, one implementation:
 - the `nova` console script → `nova.cli.app:main` ([`pyproject.toml`](../pyproject.toml), `[project.scripts]`)
 - `python -m nova` → `src/nova/__main__.py:8`, which calls the same `main()`
 
-`main()` is at [src/nova/cli/app.py:636](../src/nova/cli/app.py#L636). It does exactly five
+`main()` is at [src/nova/cli/app.py:647](../src/nova/cli/app.py#L647). It does exactly five
 things: force UTF-8 output, build the parser, normalise the args, apply globals, dispatch.
 Nothing else happens before you understand the flow.
 
@@ -124,10 +124,10 @@ looping. Only a *malformed* action costs a retry, and after two the run stops wi
 
 ## Step 5 — the engine call
 
-`Registry.complete()` ([src/nova/engine/__init__.py:68](../src/nova/engine/__init__.py#L68))
+`Registry.complete()` ([src/nova/engine/__init__.py:70](../src/nova/engine/__init__.py#L70))
 puts the currently active engine first, then walks the rest by priority. For each candidate:
 `probe()` (cheap: `/api/tags`, `/v1/models` or "is a key set"), then `_attempt()`
-([:93](../src/nova/engine/__init__.py#L93)) — 3 tries with linear backoff (4 s, 8 s) but
+([:95](../src/nova/engine/__init__.py#L95)) — 3 tries with linear backoff (4 s, 8 s) but
 **only** when `is_transient()`
 ([engine/base.py:36](../src/nova/engine/base.py#L36)) recognises 429/5xx/"high demand"/
 "rate limit"/"timed out". A 401 or an unknown model fails over immediately; hammering a
@@ -147,7 +147,7 @@ rather than a crash. Then:
 result, reason = self.tools.call_gated(tool_name, args, self.gate)
 ```
 
-`call_gated()` ([src/nova/tools/__init__.py:117](../src/nova/tools/__init__.py#L117)) is the
+`call_gated()` ([src/nova/tools/__init__.py:125](../src/nova/tools/__init__.py#L125)) is the
 *only* path the agent has to a handler, and it deliberately cannot be bypassed: it builds a
 human-readable summary, calls `gate.review()`, and returns a `denied` result **without ever
 calling the handler** when the decision is no.
@@ -173,7 +173,7 @@ the honest outcome is a report of what was blocked.
 
 ## Step 7 — the tool runs in a sandbox
 
-`Registry.call()` ([:91](../src/nova/tools/__init__.py#L91)) checks availability
+`Registry.call()` ([:99](../src/nova/tools/__init__.py#L99)) checks availability
 (`requires` → `importlib.util.find_spec`, so a missing `psutil` produces *"needs `pip install
 psutil`"*, not an ImportError), checks required args, calls the handler, and stamps `_ms`
 and `_tool` on the result. All exceptions become `{"ok": False, "error": ...}` — the loop
@@ -243,9 +243,11 @@ Two sinks, both append-only, both off by design from git:
 That row is what the *next* run injects as `RECENT TASKS` through `context_block()`
 ([src/nova/memory/__init__.py:11](../src/nova/memory/__init__.py#L11)), so memory closes the
 loop without any model training. `nova skills add` is how you turn a good trace into a
-deterministic replay: `skills.run()`
-([src/nova/skills.py:92](../src/nova/skills.py#L92)) walks the stored steps through the same
-`call_gated()` and stops at the first failure with `failed_at`.
+replay: `skills.run()`
+([src/nova/skills.py:122](../src/nova/skills.py#L122)) walks the stored steps through the same
+`call_gated()` and stops at the first failure with `failed_at`. Every step is deterministic
+except `think` (`MODEL_STEP`), which makes one model call and hands its answer to the steps
+after it through `output_key`.
 
 ## Step 10 — what you actually see
 
@@ -262,12 +264,12 @@ back to plain text when `rich` isn't installed.
 
 ## Reading order if you want the short version
 
-1. [src/nova/cli/app.py:636](../src/nova/cli/app.py#L636) `main` — dispatch and exit codes
+1. [src/nova/cli/app.py:647](../src/nova/cli/app.py#L647) `main` — dispatch and exit codes
 2. [src/nova/cli/app.py:145](../src/nova/cli/app.py#L145) `cmd_go` — how an agent is built
 3. [src/nova/agents/react.py:67](../src/nova/agents/react.py#L67) `run` — the loop
 4. [src/nova/intelligence.py:96](../src/nova/intelligence.py#L96) `parse_reply` — the protocol
-5. [src/nova/engine/__init__.py:68](../src/nova/engine/__init__.py#L68) `complete` — failover
-6. [src/nova/tools/__init__.py:117](../src/nova/tools/__init__.py#L117) `call_gated` — the chokepoint
+5. [src/nova/engine/__init__.py:70](../src/nova/engine/__init__.py#L70) `complete` — failover
+6. [src/nova/tools/__init__.py:125](../src/nova/tools/__init__.py#L125) `call_gated` — the chokepoint
 7. [src/nova/security.py:63](../src/nova/security.py#L63) `review` — the ladder
 8. [src/nova/tools/files.py:56](../src/nova/tools/files.py#L56) `_guard` — the sandbox
 9. [src/nova/learning/__init__.py:27](../src/nova/learning/__init__.py#L27) `record` — the audit trail
