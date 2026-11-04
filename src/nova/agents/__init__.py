@@ -15,7 +15,11 @@ ACTION_CUES = (
     "create", "make", "write", "delete", "rename", "move", "copy", "run", "execute", "list", "find",
     "search for", "open", "install", "fix", "build", "check", "count", "organise", "organize", "clean",
     "summarise the file", "summarize the file", "show me", "go to", "add", "update", "generate",
+    "arrange", "sort", "group", "classify", "tidy", "declutter",
 )
+
+# "can you arrange the files" is an instruction wearing a question's clothes; strip it before matching cues.
+POLITE_PREFIXES = ("can you ", "could you ", "would you ", "will you ", "please ", "i want you to ", "i need you to ")
 
 
 def answer(
@@ -42,6 +46,8 @@ def answer(
 
 def looks_like_action(text: str) -> bool:
     low = text.strip().lower()
-    if low.endswith("?"):
+    polite = next((p for p in POLITE_PREFIXES if low.startswith(p)), "")
+    low = low[len(polite):].strip()
+    if low.endswith("?") and not polite:
         return False
     return any(low.startswith(cue) or f" {cue} " in f" {low} " for cue in ACTION_CUES)

@@ -70,6 +70,22 @@ def require_exists(located: Dict[str, Any]) -> None:
         )
 
 
+def _histogram(entries: List[Dict[str, Any]]) -> str:
+    """`pdf=3, docx=2` - counts the clipped entry list cannot carry, so 'how many of each type' stays answerable."""
+    counts: Dict[str, int] = {}
+    for entry in entries:
+        if entry["kind"] == "dir":
+            key = "(folder)"
+        else:
+            suffix = Path(entry["name"]).suffix.lower()
+            key = suffix.lstrip(".") if suffix else "(no ext)"
+        counts[key] = counts.get(key, 0) + 1
+    ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+    body = ", ".join(f"{ext}={n}" for ext, n in ranked[:12])
+    extra = len(ranked) - 12
+    return body + (f", +{extra} more" if extra > 0 else "")
+
+
 def list_dir(path: str = ".", recursive: bool = False, limit: int = 300, **args: Any) -> Dict[str, Any]:
     located = resolve(path)
     _guard(located, args)
@@ -92,7 +108,16 @@ def list_dir(path: str = ".", recursive: bool = False, limit: int = 300, **args:
     else:
         for child in sorted(base.iterdir(), key=lambda c: (c.is_file(), c.name.lower())):
             entries.append({"name": child.name, "kind": "dir" if child.is_dir() else "file", "size": child.stat().st_size})
-    return {"ok": True, "root": str(base), "count": len(entries), "entries": entries, "truncated": len(entries) >= limit}
+    return {
+        "ok": True,
+        "root": str(base),
+        "count": len(entries),
+        "dirs": sum(1 for entry in entries if entry["kind"] == "dir"),
+        "by_ext": _histogram(entries),
+        "names": " ".join(entry["name"] for entry in entries),
+        "entries": entries,
+        "truncated": len(entries) >= limit,
+    }
 
 
 def read_file(path: str, max_bytes: int = TEXT_LIMIT, **args: Any) -> Dict[str, Any]:

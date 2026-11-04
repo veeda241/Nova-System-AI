@@ -106,11 +106,15 @@ linear 4 s/8 s backoff), then fails over; `models()` (:106) and `status()` (:114
 
 ## Agents
 
-**`src/nova/agents/__init__.py`** (47) — the two ways Nova answers. `answer()` (:21) is
+**`src/nova/agents/__init__.py`** (53) — the two ways Nova answers. `answer()` (:25) is
 single-shot, memory-aware, tool-free (`nova ask`), and explicitly tells the model it is not
-calling tools this turn so it doesn't emit a JSON action at you. `looks_like_action()` (:43)
-+ `ACTION_CUES` (:14) drive the REPL's routing decision — imperative verbs start an agent
-run, a question stays in `answer()`, and anything ending in `?` is a question regardless.
+calling tools this turn so it doesn't emit a JSON action at you. `looks_like_action()` (:47)
++ `ACTION_CUES` (:14) drive the REPL's routing decision — an imperative verb starts an agent
+run and a plain question stays in `answer()`. `POLITE_PREFIXES` (:22) are stripped before
+matching, because "can you arrange my downloads" is an instruction wearing a question's
+clothes; without that strip the model answers "I have no access to your files" while the
+tools it never reached do have access. A trailing `?` only wins on a line that was not
+polite-prefixed.
 
 **`src/nova/agents/react.py`** (283) — the loop, described step by step in
 [walkthrough.md](walkthrough.md). `AgentOutcome` (:19) is the machine-readable result
@@ -143,14 +147,21 @@ handler is ever touched. `build_registry()` (:147) declares the 15 filesystem/ho
 and `_memory_tools()` (:133) adds 6 memory tools — 21 total, each labelled
 `read`/`write`/`exec`/`destructive`.
 
-**`src/nova/tools/files.py`** (221) — the sandbox. `resolve()` (:41) computes
+**`src/nova/tools/files.py`** (246) — the sandbox. `resolve()` (:41) computes
 `{path, inside, exists, rel}` and never raises; `_guard()` (:56) refuses anything outside
 `config.WORKSPACE` unless `allow_outside=true`, and it runs *before* any existence probe so
 the error text cannot be used to map your disk. `require_exists()` (:65) is separate for the
-same reason. On top of those three: `list_dir` (:73, capped, recursive option), `read_file`
-(:98, byte-capped and reporting `lines`), `write_file` (:115, append mode), `make_dir` (:128),
-`move_path` (:135), `delete_path` (:147, refuses the workspace root itself),
-`find_files` (:161), `search_content` (:177), `workspace_info` (:209).
+same reason. On top of those three: `list_dir` (:89, capped, recursive option), `read_file`
+(:123, byte-capped and reporting `lines`), `write_file` (:140, append mode), `make_dir` (:153),
+`move_path` (:160), `delete_path` (:172, refuses the workspace root itself),
+`find_files` (:186), `search_content` (:202), `workspace_info` (:234).
+
+`list_dir` answers "what is in here" twice: `_histogram()` (:73) folds the entries into
+`by_ext=pdf=9, docx=7, …` and a space-joined `names` field, both placed *ahead* of the
+`entries` list. That ordering is the point — `format_observation()` clips to ~1.4 KB, so a
+200-file folder used to reach the model as a clipped list of dicts. It then invents a name
+(`report.pdf` when the file is `report1.pdf`), the move fails, and it retries the same
+invented name. Counts and names now survive the clip.
 
 **`src/nova/tools/shell.py`** (61) — three `exec`-risk tools behind one `_run()` (:14) that
 clamps the timeout to 1..600 s, captures stdout/stderr separately, and reports a kill on

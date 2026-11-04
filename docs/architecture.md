@@ -106,7 +106,9 @@ goals were being answered from a wall of prose.
 
 `agents/__init__.py` also holds `answer()` (single-shot, tool-free, memory-aware) and
 `looks_like_action()`, which is how the REPL decides whether your line is a question or a
-goal.
+goal. It strips polite prefixes first, because "can you arrange my downloads" is an
+instruction: routed as a question it gets a tool-free "I have no access to your files",
+which is a lie about what the registry can do.
 
 ## 4. Tools & Memory — `src/nova/tools/`, `src/nova/memory/`
 
@@ -119,7 +121,9 @@ requires, example`; `Registry.prompt_block()` renders them into the system promp
   approved, and the escape check runs before any existence probe so the sandbox cannot
   leak which paths exist. A relative path that repeats the sandbox name
   (`workspace/notes.md`, which is how the folder looks from the project root) resolves to
-  the file the caller meant, but only when the literal path is missing.
+  the file the caller meant, but only when the literal path is missing. `list_dir` puts
+  `by_ext=pdf=9, docx=7, …` and a plain `names` string *before* the entry dicts, because
+  observations clip at ~1.4 KB and a model that cannot see the real names invents them.
 - `tools/shell.py` — `run_command` uses `shell=True` inside the workspace cwd with a clamped
   timeout (1..600 s); `run_python`/`run_python_file` spawn `python -B`. All three are `exec`
   risk, so they prompt in `ask` mode.

@@ -23,6 +23,38 @@ def test_write_then_read_roundtrip(sandbox):
     assert read["ok"] and read["content"] == "hello nova"
 
 
+def test_list_dir_counts_the_types_not_just_the_files(sandbox):
+    registry = get_registry()
+    for name in ("a.pdf", "b.pdf", "c.docx", "notes"):
+        registry.call("write_file", {"path": name, "content": "x"})
+    registry.call("make_dir", {"path": "papers"})
+
+    result = registry.call("list_dir", {"path": "."})
+    assert result["ok"] and result["count"] == 5 and result["dirs"] == 1
+    assert "pdf=2" in result["by_ext"] and "docx=1" in result["by_ext"] and "(no ext)=1" in result["by_ext"]
+    assert "(folder)=1" in result["by_ext"]
+
+
+def test_a_real_sized_folder_shows_every_name_the_agent_needs_to_move():
+    from nova.agents.react import format_observation
+
+    entries = [{"name": f"report{i}.pdf", "kind": "file", "size": 40} for i in range(28)]
+    payload = {"root": "x", "count": 28, "dirs": 0, "by_ext": "pdf=28", "names": " ".join(e["name"] for e in entries), "entries": entries}
+    text = format_observation(payload)
+    assert "by_ext=pdf=28" in text[:120]
+    assert "report27.pdf" in text  # the last name is visible, so the model moves a file that exists
+
+
+def test_an_oversized_folder_clips_instead_of_blowing_up_the_prompt():
+    from nova.agents.react import format_observation
+
+    entries = [{"name": f"file{i}.pdf", "kind": "file", "size": 40} for i in range(300)]
+    payload = {"root": "x", "count": 300, "dirs": 0, "by_ext": "pdf=300", "names": " ".join(e["name"] for e in entries), "entries": entries}
+    text = format_observation(payload)
+    assert "by_ext=pdf=300" in text[:160]
+    assert "file0.pdf" in text and "file299.pdf" not in text and len(text) <= 1400
+
+
 def test_paths_cannot_escape_the_workspace(sandbox):
     registry = get_registry()
     result = registry.call("read_file", {"path": "../../Windows/win.ini"})

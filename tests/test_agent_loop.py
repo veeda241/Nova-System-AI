@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
+from nova.agents import looks_like_action
 from nova.agents.react import ReactAgent, format_observation
 from nova.learning import get_log
 from nova.memory import get_store
@@ -180,3 +181,15 @@ def test_observations_lead_with_the_numbers_that_answer_the_goal():
 def test_a_long_body_is_clipped_and_says_by_how_much():
     text = format_observation({"lines": 2, "content": "x" * 1500})
     assert text.endswith("[+100 chars]")
+
+
+def test_polite_instructions_still_reach_the_tool_loop():
+    assert looks_like_action("can you arrange the download files into proper file type")
+    assert looks_like_action("please sort these pdfs into folders")
+    assert looks_like_action("tidy up this folder")
+
+
+def test_genuine_questions_stay_on_the_tool_free_answer_path():
+    assert not looks_like_action("what is 7*8?")
+    assert not looks_like_action("can you tell me what 7*8 is?")
+    assert not looks_like_action("what is the list of planets?")

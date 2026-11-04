@@ -148,6 +148,22 @@ nova skills run workspace_audit --json
 nova traces recent 20
 ```
 
+### Point it at a real folder
+
+The sandbox *is* the workspace, so give Nova a folder by re-rooting it there rather than by
+letting paths escape. Plan first, then let it act:
+
+```powershell
+nova go "sort the files into folders by file type" --workspace "$env:USERPROFILE\Downloads" --first-step
+nova go "sort the files into folders by file type" --workspace "$env:USERPROFILE\Downloads"
+```
+
+The first line only prints step 1, so nothing moves. `list_dir` leads with `by_ext=pdf=9,
+docx=7, …` and the plain file names, which is what lets the agent create `pdf/` and move
+`report1.pdf` instead of a name it invented. In `ask` mode every `make_dir` and `move_path`
+prompts, which on 28 files is a lot of keystrokes - run it on a copy first, or add `--yolo`
+once the plan looks right.
+
 ## Permission model
 
 Every tool carries a risk label, and the agent cannot skip the gate:

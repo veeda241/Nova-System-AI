@@ -80,7 +80,7 @@ outcome = agent.run(" ".join(args.goal))
 `--first-step` just sets `agent.max_steps = 1` — a cheap way to see what the model *would*
 do without letting it touch anything. `cmd_ask()`
 ([:130](../src/nova/cli/app.py#L130)) takes the other branch: `agents.answer()`
-([src/nova/agents/__init__.py:21](../src/nova/agents/__init__.py#L21)), one completion, no
+([src/nova/agents/__init__.py:25](../src/nova/agents/__init__.py#L25)), one completion, no
 tools, no gate.
 
 ## Step 4 — the loop
@@ -180,7 +180,7 @@ and `_tool` on the result. All exceptions become `{"ok": False, "error": ...}` �
 never dies because a tool did.
 
 For `write_file`, `files.write_file()`
-([src/nova/tools/files.py:115](../src/nova/tools/files.py#L115)) is reached through the two
+([src/nova/tools/files.py:140](../src/nova/tools/files.py#L140)) is reached through the two
 functions every file tool calls first:
 
 ```python
