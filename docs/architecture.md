@@ -14,6 +14,7 @@ nova/cli/app.py ---- argv -> subcommand -> globals (--engine/--mode/--json/--qui
   +-- nova ask  --> intelligence + engine only (no tools)
   +-- nova go   --> agents/react.py  <---------------- ReAct loop
   +-- nova chat --> REPL around both
+  +-- nova serve -> server.py (stdlib HTTP) -> the same loop, read-only
                     |
         +-----------+------------+
         v                        v
@@ -122,9 +123,9 @@ which is a lie about what the registry can do.
 
 ## 4. Tools & Memory — `src/nova/tools/`, `src/nova/memory/`
 
-A `Tool` (`tools/__init__.py:17`) carries `name, description, handler, params, risk,
+A `Tool` (`tools/__init__.py:20`) carries `name, description, handler, params, risk,
 requires, example`; `Registry.prompt_block()` renders them into the system prompt and
-`call_gated()` is the only path the agent uses (`tools/__init__.py:117`).
+`call_gated()` is the only path the agent uses (`tools/__init__.py:125`).
 
 - `tools/files.py` — everything goes through `resolve()` (`:41`) then `_guard()` (`:56`):
   a path outside `workspace/` is refused unless `allow_outside=true` **and** the gate is
@@ -176,6 +177,34 @@ in this order:
 Modes come from `--mode` / `--yolo`, then `NOVA_YOLO=1`, then `approval_mode` in
 `.nova/settings.json`.
 
+## HTTP surface (`src/nova/server.py`)
+
+`nova serve` exposes the agent without a terminal. `build_server()` (`:179`) returns a
+`ThreadingHTTPServer` running `NovaHTTPRequestHandler` (`:109`) - stdlib only, so a deploy
+image installs nothing new. Two routes: `GET /health` (`do_GET`, `:142`) and `POST /agent`
+(`do_POST`, `:148`), which returns the same dict `nova go --json` prints plus `goal` and `ms`.
+
+The HTTP agent is *weaker* than the CLI agent in two specific ways:
+
+- `read_only_gate()` (`:45`) builds `PermissionGate(mode="deny", auto_risk=read,
+  interactive=False)`, so step 4 of the ladder above fires on every write, exec and
+  destructive call. The refusal text comes back in `denials` instead of reaching the disk.
+- `ServedRegistry` (`:50`) subclasses the tool registry to drop `allow_outside` from the
+  arguments before `call_gated()` runs. `files._guard()` (`tools/files.py:56`) is the single
+  choke point every path-taking tool passes through, so removing that one key turns the
+  workspace from a default into a wall.
+
+Auth is one rule, `authorized()` (`:100`): when `NOVA_API_TOKEN` is set, `/agent` requires
+`Authorization: Bearer <token>`, compared with `hmac.compare_digest`. `/health` stays open so
+a platform health check can reach it, and it reports *configuration* rather than probing the
+engine - a model that is loading, slow or down must not make the deployment look dead.
+`build_server` refuses a non-loopback bind without a token (`ServerConfigError`, `:32`), and
+`serve()` (`:190`) turns that into exit code 2 from `cmd_serve` (`cli/app.py:511`).
+
+Bodies are capped at 64 KB (`MAX_BODY_BYTES`, `:26`) and must parse as a JSON object; `goal`
+must be a non-empty string of at most 4000 characters and `max_steps` an integer in 1-24
+(`agent_request`, `:84`), so no single request can ask the loop for an unbounded run.
+
 ## State on disk
 
 | path | what it holds | tracked by git |
@@ -190,9 +219,10 @@ Modes come from `--mode` / `--yolo`, then `NOVA_YOLO=1`, then `approval_mode` in
 `NOVA_HOME` is the repo root (or whatever you export); `NOVA_WORKSPACE` overrides the
 sandbox root, which is how the tests point Nova at a throwaway directory.
 
-`config.get()` (`config.py:101`) resolves a setting in this order: a CLI flag
+`config.get()` (`config.py:107`) resolves a setting in this order: a CLI flag
 (`--engine`, `--mode`, via `override()`), then the environment (`.env` included) for the keys
-in `ENV_SETTINGS` - `OLLAMA_URL`, `OLLAMA_MODEL`, `HF_MODEL`, `HF_MAX_TOKENS` - then
+in `ENV_SETTINGS` - `LLAMA_CPP_URL`, `LLAMA_CPP_MODEL`, `LLAMA_CPP_MAX_TOKENS`,
+`OLLAMA_URL`, `OLLAMA_MODEL`, `HF_MODEL`, `HF_MAX_TOKENS` - then
 `.nova/settings.json` written by `nova config set`, then the shipped `DEFAULTS`. Env winning
 over saved settings is what makes `scripts/*.ps1` and CI reproducible on a machine someone
 else configured.
@@ -200,7 +230,7 @@ else configured.
 ## Extending
 
 **New tool:** write the function, then add one `Tool(...)` with a `risk` label and a
-`requires` note to `build_registry()` in `src/nova/tools/__init__.py:147`. It appears in
+`requires` note to `build_registry()` in `src/nova/tools/__init__.py:155`. It appears in
 `nova tools list`, in the agent's prompt block, and behind the gate automatically.
 
 **New engine:** subclass `Engine` in `src/nova/engine/`, set `priority`, register it in

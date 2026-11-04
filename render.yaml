@@ -1,0 +1,26 @@
+# Render Blueprint for Nova - one Docker web service, the GGUF brain included.
+#
+# The plan below is what the 4B Q4_K_M weights actually need: 2 CPU / 4 GB RAM plus ~3 GB of
+# disk for the download. Render has no GPU instances and its `free` plan is 0.1 CPU / 512 MB,
+# which cannot load a GGUF at all - to run on `free`, set NOVA_GGUF to "" and give Nova a
+# hosted engine key (GROQ_API_KEY / GEMINI_API_KEY / OPENAI_API_KEY) in the dashboard instead.
+#
+# `free` also spins down after 15 idle minutes, so the first request pays a cold start.
+
+services:
+  - type: web
+    name: nova-agent-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: 2c-4g # 2 CPU / 4 GB. Cheapest GGUF-friendly tier; use 1c-2g with a 1B-scale NOVA_GGUF
+    region: oregon
+    healthCheckPath: /health
+    envVars:
+      - key: NOVA_API_TOKEN # generated on deploy; `nova serve` refuses a public bind without it
+        generateValue: true
+      - key: NOVA_GGUF
+        value: unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M
+      - key: NOVA_CTX_SIZE
+        value: "4096" # KV cache grows with this - raise it only with the RAM to back it
+      - key: NOVA_THREADS
+        value: "2"

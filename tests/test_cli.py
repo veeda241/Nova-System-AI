@@ -244,3 +244,9 @@ def test_engine_list_names_every_backend(tmp_path):
     assert code == 0
     for name in ("llama", "ollama", "hf", "groq", "gemini", "openai"):
         assert name in out
+
+
+def test_serve_refuses_a_public_bind_without_a_token(tmp_path):
+    code, out = run(["serve", "--host", "0.0.0.0"], tmp_path, extra_env={"NOVA_API_TOKEN": ""})
+    assert code == 2
+    assert "NOVA_API_TOKEN" in flat(out)

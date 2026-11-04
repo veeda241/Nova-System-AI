@@ -4,7 +4,7 @@ One entry per file. Each says what the module owns, the names you should actuall
 and the failure mode it was written to prevent. Paths are relative to the repo root.
 
 ```text
-src/nova/{__init__,__main__,config,intelligence,security,skills,voice}.py
+src/nova/{__init__,__main__,config,intelligence,security,server,skills,voice}.py
 src/nova/cli/{app,ui}.py
 src/nova/engine/{base,llamacpp,ollama,huggingface,groq,gemini,openai}.py
 src/nova/agents/{__init__,react}.py
@@ -25,18 +25,19 @@ is how the suite runs against the source tree instead of an installed copy.
 
 ## Configuration
 
-**`src/nova/config.py`** (125 lines) — every path, the `.env` reader and the settings file.
-`_find_home()` (:25) walks up from the cwd looking for a project marker, so `nova` behaves
-the same whether you launch it from the repo root or a subdirectory; `NOVA_HOME` (:32) and
-`NOVA_WORKSPACE` (:34) let a caller relocate state, which is exactly how the tests get an
-isolated sandbox. `load_env()` (:52) reads `.env` from three candidate locations and never
-overwrites a variable that already exists — your real shell environment wins over a stale
-file. Settings resolve through `get()` (:101) in a fixed order — `OVERRIDES` (:49) from a
-flag, then the environment for the keys named in `ENV_SETTINGS` (:42) (`OLLAMA_URL`,
-`OLLAMA_MODEL`, `HF_MODEL`, `HF_MAX_TOKENS`), then `.nova/settings.json` (:87), then
-`DEFAULTS` (:10) — so a setup script can pin an endpoint without rewriting anyone's saved
-preferences. `api_key_present()` (:118) and
-`mask()` (:122) exist so nothing downstream has to handle a raw secret to report whether one
+**`src/nova/config.py`** (131 lines) — every path, the `.env` reader and the settings file.
+`_find_home()` (:28) walks up from the cwd looking for a project marker, so `nova` behaves
+the same whether you launch it from the repo root or a subdirectory; `NOVA_HOME` (:35) and
+`NOVA_WORKSPACE` (:37) let a caller relocate state, which is exactly how the tests get an
+isolated sandbox and how the container gets its own. `load_env()` (:58) reads `.env` from
+three candidate locations and never overwrites a variable that already exists — your real
+shell environment wins over a stale file. Settings resolve through `get()` (:107) in a fixed
+order — `OVERRIDES` (:55) from a flag, then the environment for the keys named in
+`ENV_SETTINGS` (:45) (`LLAMA_CPP_URL`, `LLAMA_CPP_MODEL`, `LLAMA_CPP_MAX_TOKENS`,
+`OLLAMA_URL`, `OLLAMA_MODEL`, `HF_MODEL`, `HF_MAX_TOKENS`), then `.nova/settings.json` (:38),
+then `DEFAULTS` (:10) — so a setup script or a platform can pin an endpoint without rewriting
+anyone's saved preferences. `api_key_present()` (:124) and
+`mask()` (:128) exist so nothing downstream has to handle a raw secret to report whether one
 is set.
 
 ## Intelligence (the prompt contract)
@@ -255,16 +256,44 @@ so only genuine inputs surface as `params`. `import_pack()` (:265) writes a pack
 `problems` is empty — a half-imported skill is worse than a refused one — and `import_dir()` (:276)
 reports `imported` plus `refused {name: [reasons]}` for a whole folder.
 
+## HTTP surface
+
+**`src/nova/server.py`** (214) — `nova serve`, and the only face of Nova a stranger can reach.
+Stdlib `ThreadingHTTPServer`, no framework, `GET /health` + `POST /agent`. What matters here is
+what the agent behind `POST /agent` is *not* allowed to do, and it is not allowed by
+construction rather than by policy:
+
+- `read_only_gate()` (:45) builds `PermissionGate(mode="deny", auto_risk=READ,
+  interactive=False)`, so step 4 of `review()` refuses anything above `read` and there is no
+  terminal to ask in. A network caller cannot make Nova write, move, delete or execute.
+- `ServedRegistry` (:50) subclasses the real registry and strips `allow_outside` from every
+  call before `super().call_gated()`. That argument is the gate-approved escape hatch on the
+  CLI (`--workspace ~/Downloads` uses it), and it is accepted through `**args`, so removing it
+  at the signature would not have removed it. Without this override, a "read-only" agent could
+  read any file the process user can see.
+- `build_server()` (:179) raises `ServerConfigError` (:32) when the bind address is not in
+  `LOCAL_HOSTS` (:29) and `NOVA_API_TOKEN` (:36) is unset — the server refuses to come up open
+  instead of coming up and hoping nobody looks. `authorized()` (:100) compares the bearer
+  token with `hmac.compare_digest`, and `cmd_serve()` (cli/app.py:511) turns the config error
+  into exit 2 with the fix in the message.
+- `agent_request()` (:84) caps the goal at `MAX_GOAL_CHARS` and the steps at `MAX_STEPS` (:28)
+  and `_read_body()` caps the payload at `MAX_BODY_BYTES` (:26), because one HTTP request that
+  starts 500 model calls is a denial of service against yourself on a paid plan.
+- `health()` (:69) reports configuration, not engine liveness. A platform that polls
+  `/health` and sees a failure recycles the instance — and an instance that is still
+  downloading 2.5 GB of GGUF weights *is* slow, which is not the same as broken.
+
 ## CLI
 
-**`src/nova/cli/app.py`** (668) — the command surface. `_global_parser()` (:26) with
-`SUPPRESS` defaults, `build_parser()` (:39) for subcommands, `normalise()` (:91),
-`apply_globals()` (:102), `make_gate()` (:112), one `cmd_*` per subcommand, `DISPATCH` (:631)
-and `main()` (:647) with fixed exit codes. `cmd_doctor()` (:417) is the diagnostic surface:
-engines, dependency state, env files found, sandbox root. `cmd_skills()` (:315) replays a skill
+**`src/nova/cli/app.py`** (683) — the command surface. `_global_parser()` (:26) with
+`SUPPRESS` defaults, `build_parser()` (:39) for subcommands, `normalise()` (:95),
+`apply_globals()` (:106), `make_gate()` (:116), one `cmd_*` per subcommand, `DISPATCH` (:645)
+and `main()` (:662) with fixed exit codes. `cmd_doctor()` (:421) is the diagnostic surface:
+engines, dependency state, env files found, sandbox root. `cmd_skills()` (:319) replays a skill
 and `import`s a TOML pack or folder, returning exit 1 with the refusal reasons rather than
-importing a skill that cannot run. `cmd_chat()` (:519) is the REPL,
-`_slash()` (:566) its commands, and `HELP_TEXT` (:507) the in-shell reference.
+importing a skill that cannot run. `cmd_serve()` (:511) delegates to `server.serve()` and only
+handles the refusal message. `cmd_chat()` (:533) is the REPL,
+`_slash()` (:580) its commands, and `HELP_TEXT` (:521) the in-shell reference.
 
 **`src/nova/cli/ui.py`** (161) — all printing. `force_utf8()` (:21) prevents
 `UnicodeEncodeError` on Windows codepages. `_fit()` (:80) allocates table column widths
@@ -295,7 +324,8 @@ writes nothing into your real `.nova/`.
 | `test_agent_loop.py` | the ReAct loop against a scripted engine: repeat blocked on the third identical call, different args not treated as a repeat, a tool closed after two same-reason failures, budget pressure in the prompt, `final` termination, unknown tool as observation, observation shape, salvage answer when steps run out |
 | `test_tools_gate.py` | sandbox round-trips, escape refusal, flag-and-approval pairing, deny/yolo/non-interactive, hard blocks, session grants, read tools never prompt, shell capture, destructive labels, unknown tool/missing args |
 | `test_memory_skills.py` | fact and knowledge round-trips, context block feeding the prompt, skills running without an LLM, missing params, gate denial mid-skill, a `think` step fed by the previous step's output, dead-engine failure reported in the skill's own words, threading clip, TOML pack parsing, whole-pack refusal, directory import, trace aggregation and dirty-file tolerance |
-| `test_cli.py` | subprocess runs against `python -m nova` with keys stripped: help/version/tables, write requiring yolo, `NOVA_YOLO`, session flags not persisting, escape blocked, hard block, doctor honesty with no engine, memory + skills + traces JSON, `skills import` accepting a pack and refusing one Nova cannot complete, validate, REPL `quit` |
+| `test_server.py` | a real socket on an ephemeral port with a scripted engine: health shape and what it advertises, a read tool answered over HTTP, a write goal denied and the file proven absent on disk, `allow_outside` stripped (secret never in the response, sandbox refusal visible in the next prompt), step budget honoured, wrong token 401 before the agent runs, missing goal / non-JSON body / `max_steps` above the cap each a 400, unknown path 404, public bind without a token raises and names `NOVA_API_TOKEN`, loopback default needs no token, `read_only_gate` decisions per risk, and the served registry vs the local one on the same escape attempt |
+| `test_cli.py` | subprocess runs against `python -m nova` with keys stripped: help/version/tables, write requiring yolo, `NOVA_YOLO`, session flags not persisting, escape blocked, hard block, doctor honesty with no engine, memory + skills + traces JSON, `skills import` accepting a pack and refusing one Nova cannot complete, `serve --host 0.0.0.0` with no token exiting 2, validate, REPL `quit` |
 
 ## Non-code directories
 
@@ -303,9 +333,23 @@ writes nothing into your real `.nova/`.
 [walkthrough.md](walkthrough.md) (one command end to end), this map.
 
 **`scripts/`** — `local_setup.ps1` (start/verify Ollama, pull a model, switch config to
-`engine=ollama`, smoke-test it) and `smoke.ps1` (12 offline CLI checks with expected exit
-codes, then the full pytest run unless `-Quick`). Both are single-line-runnable from
-PowerShell and neither installs anything without asking.
+`engine=ollama`, smoke-test it), `smoke.ps1` (12 offline CLI checks with expected exit
+codes, then the full pytest run unless `-Quick`) and `docker-entrypoint.sh` (container start:
+if `NOVA_GGUF` is set it launches `llama-server -hf …` in the background, then `exec nova
+serve` — `exec` so the API is PID 1 and the platform's stop signal reaches it). The PowerShell
+scripts are single-line-runnable and neither installs anything without asking; the shell
+script is LF-forced by `.gitattributes`, because a CRLF shebang line does not execute in Linux.
+
+**`Dockerfile` / `render.yaml` / `.dockerignore`** — the deploy path. The image is
+`python:3.11-slim` plus the pinned CPU `llama-server` binary unpacked into `/opt/llama.cpp`
+(`ADD <url>` unpacks the tar for us, `ld.so.conf.d` + `ldconfig` make its shared libraries
+findable), Nova installed from the source tree, a non-root `nova` user owning `/app/workspace`
+and `/app/.nova`, and no build keys in any layer — `.dockerignore` excludes `.env`, `.nova`,
+`workspace/` and `tests/` so a real `GEMINI_API_KEY` cannot be baked into a published image.
+`render.yaml` is the blueprint: `runtime: docker`, `plan: 2c-4g` (the cheapest tier that can
+hold a 4B Q4 GGUF plus its context — Render has no GPU instances and the free tier is 0.1 CPU
+/ 512 MB, which cannot load weights at all), `healthCheckPath: /health`, and
+`NOVA_API_TOKEN` generated rather than stored in the repo.
 
 **`Config/Modelfile.nova`** — an Ollama model definition that bakes the persona and the
 one-JSON-object rule into a local model. It deliberately does *not* list tools: the registry

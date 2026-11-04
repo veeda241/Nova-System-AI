@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .. import config, skills, voice
+from .. import config, server, skills, voice
 from .. import __version__
 from ..agents import ReactAgent, answer, looks_like_action
 from ..engine import EngineError, get_registry as engine_registry
@@ -83,6 +83,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     val = sub.add_parser("validate", parents=[global_], help="AST-check a Python file")
     val.add_argument("path")
+
+    srv = sub.add_parser("serve", parents=[global_], help="HTTP API: POST /agent and GET /health (read-only agent)")
+    srv.add_argument("--host", default=None, help="bind address (default 127.0.0.1; use 0.0.0.0 in a container)")
+    srv.add_argument("--port", type=int, default=None, help="port (default $PORT, else 8000)")
 
     sub.add_parser("chat", parents=[global_], help="interactive shell (same as bare `nova`)")
     return root
@@ -504,6 +508,16 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_serve(args: argparse.Namespace) -> int:
+    """The HTTP face of Nova: read-only by construction, token-gated off-loopback."""
+    try:
+        return server.serve(host=args.host, port=args.port)
+    except server.ServerConfigError as exc:
+        ui.fail(str(exc))
+        ui.warn("set NOVA_API_TOKEN, or pass --host 127.0.0.1")
+        return 2
+
+
 HELP_TEXT = """
   plain text          a question gets a direct answer, an instruction runs as a goal
   /tools              tool registry            /engine <name>   switch engine
@@ -641,6 +655,7 @@ DISPATCH: Dict[str, Any] = {
     "voice": cmd_voice,
     "config": cmd_config,
     "validate": cmd_validate,
+    "serve": cmd_serve,
 }
 
 

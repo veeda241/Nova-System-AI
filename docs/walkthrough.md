@@ -12,7 +12,7 @@ Two entry points, one implementation:
 - the `nova` console script → `nova.cli.app:main` ([`pyproject.toml`](../pyproject.toml), `[project.scripts]`)
 - `python -m nova` → `src/nova/__main__.py:8`, which calls the same `main()`
 
-`main()` is at [src/nova/cli/app.py:647](../src/nova/cli/app.py#L647). It does exactly five
+`main()` is at [src/nova/cli/app.py:662](../src/nova/cli/app.py#L662). It does exactly five
 things: force UTF-8 output, build the parser, normalise the args, apply globals, dispatch.
 Nothing else happens before you understand the flow.
 
@@ -50,7 +50,7 @@ sandbox root, and calls `config.override()` for `engine`/`approval_mode`/`max_st
 > This is the fix for a real bug: these flags used to be written into
 > `.nova/settings.json`, so one `nova go --mode yolo` left the user permanently in yolo.
 > Overrides now live in `config.OVERRIDES`
-> ([src/nova/config.py:101](../src/nova/config.py#L101)) for the lifetime of the process
+> ([src/nova/config.py:118](../src/nova/config.py#L118)) for the lifetime of the process
 > only. `config.get()` reads overrides first, then the saved file, then `DEFAULTS`.
 
 ## Step 2 — the gate is built before the agent
@@ -264,8 +264,8 @@ back to plain text when `rich` isn't installed.
 
 ## Reading order if you want the short version
 
-1. [src/nova/cli/app.py:647](../src/nova/cli/app.py#L647) `main` — dispatch and exit codes
-2. [src/nova/cli/app.py:145](../src/nova/cli/app.py#L145) `cmd_go` — how an agent is built
+1. [src/nova/cli/app.py:662](../src/nova/cli/app.py#L662) `main` — dispatch and exit codes
+2. [src/nova/cli/app.py:149](../src/nova/cli/app.py#L149) `cmd_go` — how an agent is built
 3. [src/nova/agents/react.py:67](../src/nova/agents/react.py#L67) `run` — the loop
 4. [src/nova/intelligence.py:96](../src/nova/intelligence.py#L96) `parse_reply` — the protocol
 5. [src/nova/engine/__init__.py:70](../src/nova/engine/__init__.py#L70) `complete` — failover

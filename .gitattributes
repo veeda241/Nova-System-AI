@@ -1,0 +1,2 @@
+# A shell script with CRLF line endings does not execute inside a Linux container.
+*.sh text eol=lf

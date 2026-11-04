@@ -1,0 +1,16 @@
+# The image is built from source only. Nothing below may enter it:
+.git
+.gitattributes
+.env
+.env.example
+.nova
+Config
+workspace
+tests
+docs
+*.ps1
+Dockerfile
+.dockerignore
+__pycache__
+*.pyc
+.pytest_cache

@@ -162,6 +162,7 @@ ollama`. If you want hosted and free, `groq` has a no-cost tier and takes a key 
 | `nova voice status \| on \| off \| say <text> \| listen` | optional speech, honest errors when a dependency is missing |
 | `nova config show \| set <key> <value> \| paths` | settings and file locations |
 | `nova validate <file.py>` | AST check: syntax errors, function names, risky calls |
+| `nova serve [--host H] [--port P]` | HTTP API: `POST /agent` and `GET /health`, read-only agent |
 
 Global flags work before or after the subcommand: `--engine`, `--mode`, `--yolo`,
 `--workspace`, `--max-steps`, `--json`, `--quiet`. `--json` on any command prints
@@ -189,6 +190,65 @@ docx=7, …` and the plain file names, which is what lets the agent create `pdf/
 `report1.pdf` instead of a name it invented. In `ask` mode every `make_dir` and `move_path`
 prompts, which on 28 files is a lot of keystrokes - run it on a copy first, or add `--yolo`
 once the plan looks right.
+
+## Serve it over HTTP
+
+`nova serve` is the same agent behind `nova go` with a network face: stdlib `http.server`,
+two endpoints, no new dependency.
+
+| endpoint | what it does |
+|----------|--------------|
+| `GET /health` | service, version, the engine selected so far, whether a token is required. Unauthenticated, so a platform health check can reach it - and it reports *configuration*, not engine liveness, because a slow model must not fail a health check and get the instance recycled. |
+| `POST /agent` | `{"goal": "...", "max_steps": 5}` returns the agent's own dict: `ok`, `final`, `steps`, `engine`, `tools_used`, `denials`, `trace_session`, `ms` |
+
+Two differences from the CLI, both deliberate:
+
+- **Nothing above `read` runs.** The gate is pinned to `deny`, so `write_file`, `run_command`
+  and `delete_path` come back inside `denials` instead of touching the disk. There is no
+  terminal to type `y` into, so the server never pretends one exists.
+- **`allow_outside` is stripped.** Locally that flag is how you point Nova at `~/Downloads`;
+  over HTTP it would be a way to read any file on the host. `ServedRegistry` drops the
+  argument before the tool sees it, which makes the workspace a wall rather than a default.
+
+`NOVA_API_TOKEN` switches on `Authorization: Bearer <token>` for `/agent`. With no token set
+the server binds loopback only, and `nova serve --host 0.0.0.0` refuses to start rather than
+come up open.
+
+```powershell
+$env:NOVA_API_TOKEN = "a-long-random-string"
+python -B -m nova serve --port 8000
+Invoke-RestMethod -Uri http://127.0.0.1:8000/health
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/agent -Headers @{Authorization = "Bearer $env:NOVA_API_TOKEN"} -ContentType "application/json" -Body '{"goal":"list the files in the workspace","max_steps":5}'
+```
+
+The answer is only as good as the model behind it: that call returns
+`"There is 1 file in the workspace: study-plan.md."` because the agent called `list_dir`
+first, and `tools_used` in the payload is how you check it did.
+
+### Docker and Render
+
+`Dockerfile` and `render.yaml` build **one image** that carries Nova and the CPU-only
+llama.cpp binaries (23 MB), so the same deploy works with or without a local brain:
+
+| `NOVA_GGUF` | the brain | what it needs |
+|-------------|-----------|---------------|
+| set, e.g. `unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M` | `llama-server` starts inside the container and Nova talks to it on `127.0.0.1:8080` | ~2.5 GB of weights plus KV cache, so a 4 GB plan (`2c-4g`) and ~3 GB of disk for the first-boot download |
+| empty | whatever `LLAMA_CPP_URL` points at, or a hosted key (`GROQ_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, `HF_TOKEN`) | fits the `free` plan (0.1 CPU / 512 MB) - but no GGUF does |
+
+Render has **no GPU instances**, so a GGUF there is CPU inference. The same 3-step goal that
+took 24 s on this laptop's 16 cores will take several times that on one shared vCPU, and the
+free plan's spin-down (15 idle minutes) adds a cold start to the first request. `render.yaml`
+ships the GGUF-on-`2c-4g` configuration; switch the plan to `free` and `NOVA_GGUF` to `""` for
+a hosted key.
+
+```powershell
+docker build -t nova .
+docker run -e NOVA_API_TOKEN=local-test -p 8000:10000 nova
+Invoke-RestMethod -Uri http://127.0.0.1:8000/health
+```
+
+Rendering happens on Render's side: the Blueprint reads `render.yaml`, clones the repo and
+builds this Dockerfile, so `main` has to be pushed to GitHub first.
 
 ## Permission model
 
@@ -239,6 +299,10 @@ and it is opt-in, dependency-gated, and reports exactly which package is missing
 This also means Nova cannot open apps, click, type into other programs, or install
 software. It edits files in its sandbox and runs commands you approve.
 
+The HTTP server is new in 3.0 and is not a return of that Flask app: it is two endpoints, it
+cannot write or execute, and it refuses to bind a public address without a token. Everything
+it claims to do is covered in `tests/test_server.py`.
+
 ## Layout
 
 | path | layer |
@@ -250,10 +314,12 @@ software. It edits files in its sandbox and runs commands you approve.
 | `src/nova/memory/` | JSON fact store + SQLite knowledge base |
 | `src/nova/learning/` | JSONL trace log and aggregate stats |
 | `src/nova/security.py` | risk labels, modes, hard blocks, prompts |
+| `src/nova/server.py` | `nova serve`: stdlib HTTP, `GET /health` + `POST /agent`, read-only gate |
 | `src/nova/skills.py`, `src/nova/voice.py`, `src/nova/config.py` | replayable sequences, optional speech, paths and settings |
 | `src/nova/cli/` | argument parsing and terminal rendering |
 | `docs/` | [architecture](docs/architecture.md), [walkthrough](docs/walkthrough.md), [module map](docs/modules.md) |
-| `scripts/` | [local_setup.ps1](scripts/local_setup.ps1), [smoke.ps1](scripts/smoke.ps1) |
+| `scripts/` | [local_setup.ps1](scripts/local_setup.ps1), [smoke.ps1](scripts/smoke.ps1), [docker-entrypoint.sh](scripts/docker-entrypoint.sh) |
+| `Dockerfile`, `render.yaml` | the `nova serve` image (Nova + CPU llama.cpp) and the Render Blueprint that deploys it |
 | `tests/` | offline suite, subprocess CLI checks against `src/` |
 | `workspace/`, `.nova/` | the sandbox and all runtime state - both gitignored |
 | `Config/Modelfile.nova` | Ollama model definition if you want a local Nova persona |
@@ -269,7 +335,7 @@ Three documents exist so you can understand the project without spelunking:
 - **[docs/modules.md](docs/modules.md)** — one paragraph per file: what it owns and the
   failure mode it prevents.
 
-Start at `src/nova/cli/app.py:636` (`main`) and `src/nova/agents/react.py:67` (`run`). The
+Start at `src/nova/cli/app.py:662` (`main`) and `src/nova/agents/react.py:67` (`run`). The
 package is a `src/` layout, so run it without installing with
 `$env:PYTHONPATH = "src"` before any `python -m nova ...`.
 
