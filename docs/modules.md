@@ -346,10 +346,13 @@ script is LF-forced by `.gitattributes`, because a CRLF shebang line does not ex
 findable), Nova installed from the source tree, a non-root `nova` user owning `/app/workspace`
 and `/app/.nova`, and no build keys in any layer — `.dockerignore` excludes `.env`, `.nova`,
 `workspace/` and `tests/` so a real `GEMINI_API_KEY` cannot be baked into a published image.
-`render.yaml` is the blueprint: `runtime: docker`, `plan: 2c-4g` (the cheapest tier that can
-hold a 4B Q4 GGUF plus its context — Render has no GPU instances and the free tier is 0.1 CPU
-/ 512 MB, which cannot load weights at all), `healthCheckPath: /health`, and
-`NOVA_API_TOKEN` generated rather than stored in the repo.
+`render.yaml` is the blueprint: `runtime: docker`, `plan: free`, `healthCheckPath: /health`,
+`NOVA_API_TOKEN` generated rather than stored in the repo, `NOVA_GGUF` empty, and the engine
+key marked `sync: false` so Render prompts for it in the dashboard instead of reading it from
+the file. Free is 0.1 CPU / 512 MB, which cannot hold GGUF weights in RAM — and Render's
+filesystem is ephemeral, so a spin-down would discard the download anyway — hence the hosted
+key. Flipping `plan` to `2c-4g` and setting `NOVA_GGUF` is the whole change needed to run the
+model inside the container.
 
 **`Config/Modelfile.nova`** — an Ollama model definition that bakes the persona and the
 one-JSON-object rule into a local model. It deliberately does *not* list tools: the registry

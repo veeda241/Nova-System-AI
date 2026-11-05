@@ -1,26 +1,37 @@
-# Render Blueprint for Nova - one Docker web service, the GGUF brain included.
+# Render Blueprint for Nova - one Docker web service on the $0 plan.
 #
-# The plan below is what the 4B Q4_K_M weights actually need: 2 CPU / 4 GB RAM plus ~3 GB of
-# disk for the download. Render has no GPU instances and its `free` plan is 0.1 CPU / 512 MB,
-# which cannot load a GGUF at all - to run on `free`, set NOVA_GGUF to "" and give Nova a
-# hosted engine key (GROQ_API_KEY / GEMINI_API_KEY / OPENAI_API_KEY) in the dashboard instead.
+# `free` is 0.1 CPU / 512 MB, which cannot hold a GGUF: llama.cpp needs the weights resident in
+# RAM before it answers anything (1B Q4 ~0.8 GB, 4B Q4 ~2.5 GB), and Render's filesystem is
+# ephemeral, so every spin-down would re-download them anyway. So on free the brain lives
+# outside the container: NOVA_GGUF stays empty and Nova falls through to a hosted key.
 #
-# `free` also spins down after 15 idle minutes, so the first request pays a cold start.
+# To ship the GGUF instead, change `plan` to 2c-4g ($85/mo - 1c-2g at $25/mo works with a 1B
+# model) and set NOVA_GGUF to a Hugging Face repo:QUANT like
+#   unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M
+# Render has no GPU instances, so that is CPU inference either way.
 
 services:
   - type: web
     name: nova-agent-api
     runtime: docker
     dockerfilePath: ./Dockerfile
-    plan: 2c-4g # 2 CPU / 4 GB. Cheapest GGUF-friendly tier; use 1c-2g with a 1B-scale NOVA_GGUF
+    plan: free # spins down after 15 idle minutes; the next request waits ~1 min for spin-up
     region: oregon
+    # Reports configuration, never model liveness - a /health that fails because a model is
+    # slow gets the instance recycled by the platform.
     healthCheckPath: /health
     envVars:
-      - key: NOVA_API_TOKEN # generated on deploy; `nova serve` refuses a public bind without it
-        generateValue: true
+      - key: NOVA_API_TOKEN
+        generateValue: true # `nova serve` refuses to bind a public address without a token
       - key: NOVA_GGUF
-        value: unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M
-      - key: NOVA_CTX_SIZE
-        value: "4096" # KV cache grows with this - raise it only with the RAM to back it
-      - key: NOVA_THREADS
-        value: "2"
+        value: "" # no in-container model on the free plan
+      # sync: false -> Render asks for the value once, in the dashboard, and keeps it out of
+      # this file. Adding these later needs the dashboard, not a Blueprint update.
+      # Nova tries engines in priority order (llama, ollama, hf, groq, gemini, openai); with
+      # NOVA_GGUF empty the first two fail fast, so whichever key you fill in is what answers.
+      # Fill in one, not both. A Hugging Face token is not enough - free HF accounts hold no
+      # Inference Providers credit.
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
